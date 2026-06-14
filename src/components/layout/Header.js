@@ -14,21 +14,15 @@ export default function Header() {
   ];
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-brand-dark/10 bg-white/80 backdrop-blur-md">
+    <header className="sticky top-0 z-50 w-full border-b border-brand-dark/10 bg-background/80 backdrop-blur-md">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-20 items-center justify-between">
-          {/* Logo Section */}
           <div className="flex items-center">
-            <Link href="/" className="flex items-center gap-3 group">
+            <Link href="/" className="flex items-center group">
               <img
-                src="/assets/domnak-logo.png"
+                src="/assets/domnak-logo-with-kh-cream.png"
                 alt="DomNak Logo"
-                className="h-11 w-11 rounded-full object-cover transition-transform group-hover:scale-105 border border-brand-gold/20"
-              />
-              <img
-                src="/assets/domnak-logo-kh.png"
-                alt="DomNak Khmer Logo"
-                className="h-7 w-auto object-contain transition-opacity duration-200 group-hover:opacity-90"
+                className="h-16 w-auto object-contain transition-transform group-hover:scale-102"
               />
             </Link>
           </div>

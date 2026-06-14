@@ -31,15 +31,12 @@ export default function Footer() {
         <div className="xl:grid xl:grid-cols-3 xl:gap-8">
           {/* Brand Column */}
           <div className="space-y-6">
-            <Link href="/" className="flex items-center gap-3 group">
+            <Link href="/" className="flex items-center group">
               <img
-                src="/assets/domnak-logo.png"
+                src="/assets/domnak-logo-with-kh-cream.png"
                 alt="DomNak Logo"
-                className="h-10 w-10 rounded-full object-cover transition-transform group-hover:scale-105 border border-white/20"
+                className="h-14 w-auto object-contain transition-transform group-hover:scale-102"
               />
-              <span className="text-xl font-bold tracking-tight text-[#201b12]">
-                Dom<span className="text-white">Nak</span>
-              </span>
             </Link>
             <p className="text-xs leading-5 text-white/85 max-w-xs">
               Optimize construction estimation and execution with transparency, reliability, and precision. Built for homeowners, architects, and builders.
