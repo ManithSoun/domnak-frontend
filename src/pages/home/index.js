@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useState } from "react";
 import { testConnection } from "@/lib/api";
 import Header from "@/components/layout/Header";
@@ -8,6 +6,7 @@ import Stats from "@/components/home/Stats";
 import About from "@/components/home/About";
 import Features from "@/components/home/Features";
 import HowItWorks from "@/components/home/HowItWorks";
+import UserFeedback from "@/components/home/UserFeedback";
 import CallToAction from "@/components/home/CallToAction";
 import Footer from "@/components/layout/Footer";
 
@@ -29,6 +28,7 @@ export default function Home() {
         <About />
         <Features />
         <HowItWorks />
+        <UserFeedback />
         <CallToAction />
       </main>
       <Footer />

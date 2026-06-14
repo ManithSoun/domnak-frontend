@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check } from "lucide-react";
+import { Check, ArrowRight } from "lucide-react";
 import Link from "next/link";
 
 export default function Features() {
@@ -78,13 +78,14 @@ export default function Features() {
                   ))}
                 </ul>
 
-                {/* Tab CTA Link styled on the bottom right */}
+                {/* Tab CTA Button styled on the bottom right */}
                 <div className="flex justify-end pt-4">
                   <Link
                     href="#get-started"
-                    className="inline-flex items-center gap-1 text-sm font-bold text-[#b38e42] hover:text-[#80632b] transition-colors"
+                    className="group inline-flex items-center gap-2 rounded-full bg-[#b38e42] px-6 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#80632b] hover:shadow-md transition-all duration-200 cursor-pointer"
                   >
-                    Start as homeowner &mdash;&rarr;
+                    Start as homeowner
+                    <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
                   </Link>
                 </div>
               </div>
@@ -118,13 +119,14 @@ export default function Features() {
                   ))}
                 </ul>
 
-                {/* Tab CTA Link styled on the bottom right */}
+                {/* Tab CTA Button styled on the bottom right */}
                 <div className="flex justify-end pt-4">
                   <Link
                     href="#get-started"
-                    className="inline-flex items-center gap-1 text-sm font-bold text-[#b38e42] hover:text-[#80632b] transition-colors"
+                    className="group inline-flex items-center gap-2 rounded-full bg-[#b38e42] px-6 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#80632b] hover:shadow-md transition-all duration-200 cursor-pointer"
                   >
-                    Start as architect &mdash;&rarr;
+                    Start as architect
+                    <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
                   </Link>
                 </div>
               </div>
