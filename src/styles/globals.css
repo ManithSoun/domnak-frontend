@@ -46,10 +46,15 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  --color-brand-gold: #b38e42;
+  --color-brand-gold-dark: #9c7832;
+  --color-brand-dark: #201b12;
+  --color-brand-cream: #FAF7F0;
+  --color-brand-cream-dark: #f5f0e1;
 }
 
 :root {
-  --background: oklch(1 0 0);
+  --background: #fffbee;
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
