@@ -1,24 +1,41 @@
-import { apiFetch } from "./client";
+import { API_URL, authHeaders, getToken } from "../config"
 
-// POST /api/quotes/
-export async function createQuote({ contractorName, totalAmount }) {
-  return apiFetch("/api/quotes/", {
+export async function createQuote(contractor_name, total_amount) {
+  const res = await fetch(`${API_URL}/api/v1/quotes/`, {
     method: "POST",
-    body: JSON.stringify({
-      contractor_name: contractorName,
-      total_amount: totalAmount,
-    }),
-  });
+    headers: authHeaders(getToken()),
+    body: JSON.stringify({ contractor_name, total_amount })
+  })
+  return res.json()
 }
 
-// GET /api/quotes/
 export async function getQuotes() {
-  return apiFetch("/api/quotes/");
+  const res = await fetch(`${API_URL}/api/v1/quotes/`, {
+    headers: authHeaders(getToken())
+  })
+  return res.json()
 }
 
-// DELETE /api/quotes/{quoteId}
-export async function deleteQuote(quoteId) {
-  return apiFetch(`/api/quotes/${quoteId}`, {
+export async function getQuote(quote_id) {
+  const res = await fetch(`${API_URL}/api/v1/quotes/${quote_id}`, {
+    headers: authHeaders(getToken())
+  })
+  return res.json()
+}
+
+export async function updateQuote(quote_id, contractor_name, total_amount) {
+  const res = await fetch(`${API_URL}/api/v1/quotes/${quote_id}`, {
+    method: "PATCH",
+    headers: authHeaders(getToken()),
+    body: JSON.stringify({ contractor_name, total_amount })
+  })
+  return res.json()
+}
+
+export async function deleteQuote(quote_id) {
+  const res = await fetch(`${API_URL}/api/v1/quotes/${quote_id}`, {
     method: "DELETE",
-  });
+    headers: authHeaders(getToken())
+  })
+  return res.json()
 }

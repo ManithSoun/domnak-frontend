@@ -1,38 +1,34 @@
-import { apiFetch } from "./client";
+import { API_URL, authHeaders, saveAuth } from "../config"
 
-// POST /api/auth/signup
-export async function signup({ email, password, name, role, phone }) {
-  return apiFetch("/api/auth/signup", {
+export async function signup(full_name, email, password, role, phone_number) {
+  const res = await fetch(`${API_URL}/api/v1/auth/signup`, {
     method: "POST",
-    body: JSON.stringify({ email, password, name, role, phone }),
-  });
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ full_name, email, password, role, phone_number })
+  })
+  return res.json()
 }
 
-// POST /api/auth/login
-export async function login({ email, password }) {
-  const data = await apiFetch("/api/auth/login", {
+export async function login(email, password) {
+  const res = await fetch(`${API_URL}/api/v1/auth/login`, {
     method: "POST",
-    body: JSON.stringify({ email, password }),
-  });
-
-  // Save token for subsequent requests
-  if (typeof window !== "undefined") {
-    localStorage.setItem("access_token", data.access_token);
-    localStorage.setItem("user_id", data.user_id);
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password })
+  })
+  const data = await res.json()
+  if (data.data) {
+    saveAuth(data.data)
   }
-
-  return data;
+  return data
 }
 
-// GET /api/auth/me
-export async function getMe(userId) {
-  return apiFetch(`/api/auth/me?user_id=${userId}`);
+export async function getMe(token, user_id) {
+  const res = await fetch(`${API_URL}/api/v1/auth/me?user_id=${user_id}`, {
+    headers: authHeaders(token)
+  })
+  return res.json()
 }
 
-// Logout — clear stored token
-export function logout() {
-  if (typeof window !== "undefined") {
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("user_id");
-  }
+export async function logout() {
+  clearAuth()
 }

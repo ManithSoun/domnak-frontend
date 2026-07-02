@@ -1,23 +1,14 @@
-// POST /api/pdf/upload
-// Must use FormData (no JSON), file sent as binary
-export async function uploadPdf(file) {
-  const formData = new FormData();
-  formData.append("file", file);
+import { API_URL, getToken } from "../config"
 
-  const token = localStorage.getItem("access_token");
-
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pdf/upload`, {
+export async function uploadPDF(file) {
+  const formData = new FormData()
+  formData.append("file", file)
+  const res = await fetch(`${API_URL}/api/v1/pdf/upload`, {
     method: "POST",
     headers: {
-      ...(token && { Authorization: `Bearer ${token}` }),
+      "authorization": `Bearer ${getToken()}`
     },
-    body: formData,
-  });
-
-  if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(error.detail || "PDF upload failed");
-  }
-
-  return res.json();
+    body: formData
+  })
+  return res.json()
 }

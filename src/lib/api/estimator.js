@@ -1,15 +1,10 @@
-import { apiFetch } from "./client";
+import { API_URL } from "../config"
 
-// POST /api/estimator/
-export async function estimateCost({ floorArea, storeys, finishing, roofType, location }) {
-  return apiFetch("/api/estimator/", {
+export async function estimateCost(floor_area, storeys, finishing, roof_type, location) {
+  const res = await fetch(`${API_URL}/api/v1/estimator/`, {
     method: "POST",
-    body: JSON.stringify({
-      floor_area: floorArea,
-      storeys,
-      finishing,
-      roof_type: roofType,
-      location,
-    }),
-  });
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ floor_area, storeys, finishing, roof_type, location })
+  })
+  return res.json()
 }

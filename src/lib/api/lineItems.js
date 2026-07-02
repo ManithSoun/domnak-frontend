@@ -1,28 +1,34 @@
-import { apiFetch } from "./client";
+import { API_URL, authHeaders, getToken } from "../config"
 
-// POST /api/line-items/
-export async function createLineItem({ quoteId, materialName, quantity, unit, unitPrice, totalPrice }) {
-  return apiFetch("/api/line-items/", {
+export async function createLineItem(quote_id, material_name, quantity, unit, unit_price, total_price = null) {
+  const res = await fetch(`${API_URL}/api/v1/line-items/`, {
     method: "POST",
-    body: JSON.stringify({
-      quote_id: quoteId,
-      material_name: materialName,
-      quantity,
-      unit,
-      unit_price: unitPrice,
-      total_price: totalPrice,
-    }),
-  });
+    headers: authHeaders(getToken()),
+    body: JSON.stringify({ quote_id, material_name, quantity, unit, unit_price, total_price })
+  })
+  return res.json()
 }
 
-// GET /api/line-items/?quote_id=xxx
-export async function getLineItems(quoteId) {
-  return apiFetch(`/api/line-items/?quote_id=${quoteId}`);
+export async function getLineItems(quote_id) {
+  const res = await fetch(`${API_URL}/api/v1/line-items/?quote_id=${quote_id}`, {
+    headers: authHeaders(getToken())
+  })
+  return res.json()
 }
 
-// DELETE /api/line-items/{itemId}
-export async function deleteLineItem(itemId) {
-  return apiFetch(`/api/line-items/${itemId}`, {
+export async function updateLineItem(item_id, updates) {
+  const res = await fetch(`${API_URL}/api/v1/line-items/${item_id}`, {
+    method: "PATCH",
+    headers: authHeaders(getToken()),
+    body: JSON.stringify(updates)
+  })
+  return res.json()
+}
+
+export async function deleteLineItem(item_id) {
+  const res = await fetch(`${API_URL}/api/v1/line-items/${item_id}`, {
     method: "DELETE",
-  });
+    headers: authHeaders(getToken())
+  })
+  return res.json()
 }
