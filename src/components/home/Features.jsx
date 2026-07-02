@@ -81,7 +81,7 @@ export default function Features() {
                 {/* Tab CTA Button styled on the bottom right */}
                 <div className="flex justify-end pt-4">
                   <Link
-                    href="#get-started"
+                    href="/login?role=homeowner"
                     className="group inline-flex items-center gap-2 rounded-full bg-[#b38e42] px-6 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#80632b] hover:shadow-md transition-all duration-200 cursor-pointer"
                   >
                     Start as homeowner
@@ -122,7 +122,7 @@ export default function Features() {
                 {/* Tab CTA Button styled on the bottom right */}
                 <div className="flex justify-end pt-4">
                   <Link
-                    href="#get-started"
+                    href="/login?role=architect"
                     className="group inline-flex items-center gap-2 rounded-full bg-[#b38e42] px-6 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#80632b] hover:shadow-md transition-all duration-200 cursor-pointer"
                   >
                     Start as architect

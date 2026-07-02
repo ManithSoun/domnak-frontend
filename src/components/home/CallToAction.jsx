@@ -26,13 +26,13 @@ export default function CallToAction() {
         {/* Buttons Grid */}
         <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-4 max-w-sm mx-auto sm:max-w-none">
           <Link
-            href="/homeowners"
+            href="/login?role=homeowner"
             className="w-full sm:w-auto inline-flex items-center justify-center rounded-full bg-white px-8 py-3.5 text-base font-bold text-[#ab8231] hover:bg-brand-cream transition-colors shadow-md"
           >
             I&apos;m a Homeowner
           </Link>
           <Link
-            href="/architect"
+            href="/login?role=architect"
             className="w-full sm:w-auto inline-flex items-center justify-center rounded-full bg-brand-dark px-8 py-3.5 text-base font-bold text-white hover:bg-black transition-colors shadow-md"
           >
             I&apos;m an architect

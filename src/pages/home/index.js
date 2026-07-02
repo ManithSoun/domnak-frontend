@@ -19,16 +19,31 @@ export default function Home() {
       .catch(() => setStatus("disconnected"));
   }, []);
 
+  // Smooth scroll to section if hash is present on landing
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.location.hash) {
+      const hash = window.location.hash;
+      const id = hash.replace("#", "");
+      const timer = setTimeout(() => {
+        const element = document.getElementById(id);
+        if (element) {
+          element.scrollIntoView({ behavior: "smooth" });
+        }
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
   return (
     <>
       <Header />
       <main className="flex-grow">
         <Hero />
         <Stats />
-        <About />
         <Features />
         <HowItWorks />
         <UserFeedback />
+        <About />
         <CallToAction />
       </main>
       <Footer />
