@@ -12,11 +12,11 @@ export default function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navigation = [
-    { name: "How it works", href: "/#how-it-works" },
     { name: "Features", href: "/#features" },
-    { name: "Chatbot", href: "/chatbot" },
-    { name: "Supplies", href: "/supplier" },
+    { name: "How it works", href: "/#how-it-works" },
     { name: "About us", href: "/#about-us" },
+    { name: "Chatbot", href: "/chatbot" },
+    { name: "Supplier", href: "/supplier" },
   ];
 
   const handleNavClick = (e, item) => {

@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import Head from "next/head";
 import Link from "next/link";
-import Header from "@/components/layout/Header";
-import Footer from "@/components/layout/Footer";
+import ChatUI from "@/components/ChatUI";
 import { useAuth } from "../../../router/useAuth";
 import {
   Compass,
@@ -31,7 +30,11 @@ import {
   ScanLine,
   X,
   FileImage,
-  BarChart2
+  BarChart2,
+  LayoutDashboard,
+  LogOut,
+  ArrowLeft,
+  History
 } from "lucide-react";
 
 export default function ArchitectPage() {
@@ -116,6 +119,7 @@ export default function ArchitectPage() {
   const [scanBoq, setScanBoq] = useState([]);             // auto-generated BOQ
   const [scanQuoteClientId, setScanQuoteClientId] = useState("c1");
   const [showQuoteModal, setShowQuoteModal] = useState(false);
+  const [sentQuotesList, setSentQuotesList] = useState([]);
 
   // Initialize and load custom templates from localStorage if present
   useEffect(() => {
@@ -127,6 +131,10 @@ export default function ArchitectPage() {
       const savedFiles = localStorage.getItem("domnak_architect_files");
       if (savedFiles) {
         try { setSharedFiles(JSON.parse(savedFiles)); } catch (e) { console.error(e); }
+      }
+      const savedSentQuotes = localStorage.getItem("domnak_sent_quotes");
+      if (savedSentQuotes) {
+        try { setSentQuotesList(JSON.parse(savedSentQuotes)); } catch (e) { console.error(e); }
       }
     }
   }, []);
@@ -278,13 +286,57 @@ export default function ArchitectPage() {
 
   const resetScanState = () => { setScanFile(null); setScanResults(null); setScanBoq([]); };
 
+  const handleLoadSavedQuote = (quote) => {
+    setScanFile({
+      name: quote.fileName || "Loaded BoQ Plan",
+      type: "application/pdf",
+      size: "Generated BOQ"
+    });
+    setScanResults({
+      area: quote.area || 120,
+      wallLength: Math.round(quote.area * 0.9) || 100,
+      roofArea: Math.round(quote.area * 1.2) || 140,
+      roomCount: 4,
+      bathroomCount: 2
+    });
+    setScanBoq(JSON.parse(JSON.stringify(quote.boq)));
+    setActiveTab("floorplan");
+    showToast(`Loaded Quote: ${quote.clientName}`);
+  };
+
+  const handleDeleteSavedQuote = (id) => {
+    const updated = sentQuotesList.filter(q => q.id !== id);
+    setSentQuotesList(updated);
+    localStorage.setItem("domnak_sent_quotes", JSON.stringify(updated));
+    showToast("Quote deleted successfully.");
+  };
+
+  const handleSaveDraftQuote = () => {
+    const quote = {
+      id: `q_${Date.now()}`,
+      clientId: "draft",
+      clientName: "Draft / Unassigned",
+      fileName: scanFile?.name || "Scanned Plan",
+      area: scanResults?.area || 120,
+      total: Math.round(calculateScanBoqTotal()),
+      boq: scanBoq,
+      sentAt: new Date().toISOString(),
+    };
+    const updated = [quote, ...sentQuotesList];
+    setSentQuotesList(updated);
+    localStorage.setItem("domnak_sent_quotes", JSON.stringify(updated));
+    showToast("✅ Draft quote saved successfully!");
+  };
+
+  const handleExportPDF = () => {
+    window.print();
+  };
+
   const handleScanFileSelect = (file) => {
     if (!file) return;
-    const isImage = file.type.startsWith("image/");
-    const isPdf   = file.type === "application/pdf";
-    if (!isImage && !isPdf) { showToast("Please upload a PNG, JPG, or PDF file."); return; }
-    const previewUrl = isImage ? URL.createObjectURL(file) : null;
-    setScanFile({ name: file.name, type: file.type, size: (file.size / 1024 / 1024).toFixed(2) + " MB", previewUrl });
+    const isPdf = file.type === "application/pdf";
+    if (!isPdf) { showToast("Please upload a PDF file only."); return; }
+    setScanFile({ name: file.name, type: file.type, size: (file.size / 1024 / 1024).toFixed(2) + " MB", previewUrl: null });
     setScanResults(null);
     setScanBoq([]);
   };
@@ -335,110 +387,145 @@ export default function ArchitectPage() {
         <meta name="description" content="Collaborate with homeowners. Compile dynamic Bill of Quantities, configure material markup values, and coordinate interior design templates." />
       </Head>
 
-      <Header />
+      {/* ── Full-viewport sidebar layout ─────────────────────────────── */}
+      <div className="flex h-screen overflow-hidden bg-[#F5F2EB]">
 
-      <main className="flex-grow bg-[#FAF7F0] min-h-screen pb-20 relative overflow-hidden font-sans">
-        <div className="absolute inset-0 opacity-5 pointer-events-none bg-[radial-gradient(#b38e42_1px,transparent_1px)] [background-size:24px_24px]" />
-
-        {/* Global Floating Toast */}
-        {customNotification && (
-          <div className="fixed bottom-8 right-8 z-50 flex items-center gap-2 rounded-xl bg-brand-dark px-5 py-4 text-sm font-semibold text-white shadow-xl animate-in fade-in slide-in-from-bottom-5 duration-300">
-            <Sparkles className="h-4 w-4 text-brand-gold animate-pulse" />
-            <span>{customNotification}</span>
+        {/* ── Sidebar ──────────────────────────────────────────────────── */}
+        <aside className="w-[230px] flex-shrink-0 bg-[#1E1C18] flex flex-col h-full">
+          {/* Logo */}
+          <div className="px-6 pt-7 pb-4 flex items-center gap-2">
+            <Link 
+              href="/" 
+              className="p-1.5 text-white/55 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+              title="Back to Home"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
+            <Link href="/" className="inline-block">
+              <img
+                src="/assets/domnak-circle-logo.png"
+                alt="DomNak Logo"
+                className="h-10 w-auto object-contain"
+              />
+            </Link>
           </div>
-        )}
 
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-10">
-          
-          {/* Breadcrumb & Welcome header */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-            <div>
-              <div className="flex items-center gap-2 text-xs font-bold text-brand-gold tracking-wider uppercase mb-1">
-                <Compass className="h-3.5 w-3.5" />
-                <span>Architect Studio Hub</span>
+          {/* Navigation */}
+          <nav className="flex-1 px-3 space-y-0.5 pt-4">
+            {[
+              { id: "overview",      label: "Overview",       icon: Briefcase },
+              { id: "scanAnalyzer",  label: "Plan Analyzer",  icon: ScanLine },
+
+              { id: "boq",           label: "BOQ Builder",    icon: Grid },
+              { id: "files",         label: "Shared Files",   icon: FileText },
+              { id: "messages",      label: "Client Chat",    icon: MessageSquare },
+              { id: "settings",      label: "Studio Settings",icon: Settings },
+            ].map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                onClick={() => setActiveTab(id)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
+                  activeTab === id
+                    ? "bg-brand-gold text-white shadow-md shadow-brand-gold/10"
+                    : "text-[#FAF7F0]/60 hover:text-white hover:bg-white/5"
+                }`}
+              >
+                <Icon className="h-4.5 w-4.5" />
+                {label}
+              </button>
+            ))}
+          </nav>
+
+          {/* User profile section at the bottom */}
+          <div className="p-4 border-t border-[#FAF7F0]/10 flex items-center justify-between gap-3 bg-black/10">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="h-9 w-9 rounded-full bg-brand-gold flex items-center justify-center font-bold text-white shadow-sm select-none uppercase shrink-0">
+                {user?.company ? user.company.substring(0, 2) : "AS"}
               </div>
-              <h1 className="text-3xl font-black text-brand-dark tracking-tight">
-                {activeTab === "overview"      && "Studio Management & Overview"}
-                {activeTab === "floorplan"     && "AI Floor Plan Generator"}
-                {activeTab === "boq"           && "Interactive BoQ Template Builder"}
-                {activeTab === "scanAnalyzer"  && "AI Plan Analyzer & BOQ Generator"}
-                {activeTab === "files"         && "Shared Drawings & Design Files"}
-                {activeTab === "messages"      && `Client Messages: ${activeClient.name}`}
-                {activeTab === "settings"      && "Studio Profile Configurations"}
-              </h1>
-              <p className="text-sm text-brand-dark/60 mt-1">
-                {activeTab === "overview"      && "Track client project milestones, coordinate shared folders, and review requests."}
-                {activeTab === "floorplan"     && "Generate optimized 2D/3D floor layouts using AI. Adjust rooms, styles, and prompt parameters."}
-                {activeTab === "boq"           && "Adjust structural masonry rates, coordinate markups, and construct standard cost models."}
-                {activeTab === "scanAnalyzer"  && "Upload a floor plan image or PDF — AI extracts dimensions, walls, roof & foundation, then auto-generates a full BOQ ready to send to your client."}
-                {activeTab === "files"         && "Maintain blueprints, upload rendering proposals, and audit client structural specs."}
-                {activeTab === "messages"      && "Coordinate client alignment meetings, verify layout changes, and clarify budgets."}
-                {activeTab === "settings"      && "Configure studio portfolio descriptions, active location settings, and studio credentials."}
-              </p>
+              <div className="min-w-0">
+                <span className="text-[11px] font-black text-white block truncate leading-tight">
+                  {user?.company || "Angkor Studio"}
+                </span>
+                <span className="text-[9px] text-[#FAF7F0]/40 font-semibold block uppercase tracking-wider mt-0.5">
+                  Architect Portal
+                </span>
+              </div>
             </div>
-            
+
+            <button
+              onClick={logout}
+              className="p-2 text-[#FAF7F0]/40 hover:text-rose-500 hover:bg-rose-500/10 rounded-xl transition-all duration-200 cursor-pointer shrink-0"
+              title="Log Out"
+            >
+              <LogOut className="h-4.5 w-4.5" />
+            </button>
+          </div>
+        </aside>
+
+        {/* ── Main content area ────────────────────────────────────────── */}
+        <div className="flex-grow flex flex-col h-full overflow-hidden">
+          
+          {/* Header bar */}
+          <header className="bg-white border-b border-[#1E1C18]/5 h-16 flex items-center justify-between px-8 shadow-sm flex-shrink-0">
             <div className="flex items-center gap-3">
-              <span className="inline-flex h-2.5 w-2.5 rounded-full bg-brand-gold animate-pulse" />
-              <span className="text-xs font-semibold text-brand-dark/70 bg-white/80 border border-brand-dark/5 rounded-full px-3 py-1 backdrop-blur-sm">
+              <span className="text-xs font-bold text-brand-dark/45 uppercase tracking-wider">
+                {activeTab === "overview" && "Dashboard"}
+                {activeTab === "scanAnalyzer" && "Plan Analyzer"}
+                {activeTab === "floorplan" && "AI Floor Planner"}
+                {activeTab === "boq" && "BoQ Builder"}
+                {activeTab === "files" && "Shared Drawings"}
+                {activeTab === "messages" && "Client Chat"}
+                {activeTab === "settings" && "Settings"}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <span className="inline-flex h-2 w-2 rounded-full bg-brand-gold animate-pulse" />
+              <span className="text-xs font-semibold text-brand-dark/70">
                 Studio: <strong className="text-brand-dark">{user?.company || "Angkor Architecture Studio"}</strong>
               </span>
             </div>
-          </div>
+          </header>
 
-          {/* TAB NAVIGATION SELECTOR */}
-          <div className="flex border-b border-brand-dark/10 mb-8 overflow-x-auto pb-px">
-            <button
-              onClick={() => setActiveTab("overview")}
-              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-black transition-all cursor-pointer border-b-2 -mb-px ${activeTab === "overview" ? "border-brand-gold text-brand-gold bg-brand-gold/5 rounded-t-xl" : "border-transparent text-brand-dark/60 hover:text-brand-dark"}`}
-            >
-              <Briefcase className="h-4.5 w-4.5" />
-              Overview
-            </button>
-            <button
-              onClick={() => setActiveTab("floorplan")}
-              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-black transition-all cursor-pointer border-b-2 -mb-px ${activeTab === "floorplan" ? "border-brand-gold text-brand-gold bg-brand-gold/5 rounded-t-xl" : "border-transparent text-brand-dark/60 hover:text-brand-dark"}`}
-            >
-              <Sparkles className="h-4.5 w-4.5" />
-              AI Floor Plan
-            </button>
-            <button
-              onClick={() => setActiveTab("boq")}
-              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-black transition-all cursor-pointer border-b-2 -mb-px ${activeTab === "boq" ? "border-brand-gold text-brand-gold bg-brand-gold/5 rounded-t-xl" : "border-transparent text-brand-dark/60 hover:text-brand-dark"}`}
-            >
-              <Grid className="h-4.5 w-4.5" />
-              BoQ Builder
-            </button>
-            <button
-              onClick={() => setActiveTab("scanAnalyzer")}
-              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-black transition-all cursor-pointer border-b-2 -mb-px ${activeTab === "scanAnalyzer" ? "border-brand-gold text-brand-gold bg-brand-gold/5 rounded-t-xl" : "border-transparent text-brand-dark/60 hover:text-brand-dark"}`}
-            >
-              <ScanLine className="h-4.5 w-4.5" />
-              Plan Analyzer
-            </button>
-            <button
-              onClick={() => setActiveTab("files")}
-              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-black transition-all cursor-pointer border-b-2 -mb-px ${activeTab === "files" ? "border-brand-gold text-brand-gold bg-brand-gold/5 rounded-t-xl" : "border-transparent text-brand-dark/60 hover:text-brand-dark"}`}
-            >
-              <FileText className="h-4.5 w-4.5" />
-              Shared Files
-            </button>
-            <button
-              onClick={() => setActiveTab("messages")}
-              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-black transition-all cursor-pointer border-b-2 -mb-px ${activeTab === "messages" ? "border-brand-gold text-brand-gold bg-brand-gold/5 rounded-t-xl" : "border-transparent text-brand-dark/60 hover:text-brand-dark"}`}
-            >
-              <MessageSquare className="h-4.5 w-4.5" />
-              Client Messaging
-            </button>
-            <button
-              onClick={() => setActiveTab("settings")}
-              className={`flex items-center gap-2 px-5 py-3.5 text-sm font-black transition-all cursor-pointer border-b-2 -mb-px ${activeTab === "settings" ? "border-brand-gold text-brand-gold bg-brand-gold/5 rounded-t-xl" : "border-transparent text-brand-dark/60 hover:text-brand-dark"}`}
-            >
-              <Settings className="h-4.5 w-4.5" />
-              Studio Profile
-            </button>
-          </div>
+          {/* Page content */}
+          <div className="flex-1 overflow-y-auto bg-[#FAF7F0]/40 relative">
+            <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-[radial-gradient(#b38e42_1px,transparent_1px)] [background-size:20px_20px]" />
+            
+            {/* Global toast status bar */}
+            {customNotification && (
+              <div className="fixed bottom-8 right-8 z-50 flex items-center gap-2 rounded-xl bg-brand-dark px-5 py-4 text-sm font-semibold text-white shadow-xl animate-in fade-in slide-in-from-bottom-5 duration-300">
+                <Sparkles className="h-4 w-4 text-brand-gold animate-pulse" />
+                <span>{customNotification}</span>
+              </div>
+            )}
 
-          {/* TAB CONTENTS */}
+            <div className="p-8 max-w-7xl mx-auto space-y-8">
+              
+              {/* Header section with page title */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#1E1C18]/5 pb-6">
+                <div>
+                  <h1 className="text-2xl font-black text-brand-dark tracking-tight">
+                    {activeTab === "overview"      && "Studio Management & Overview"}
+                    {activeTab === "floorplan"     && "AI Floor Plan Generator"}
+                    {activeTab === "boq"           && "Interactive BoQ Template Builder"}
+                    {activeTab === "scanAnalyzer"  && "AI Plan Analyzer & BOQ Generator"}
+                    {activeTab === "files"         && "Shared Drawings & Design Files"}
+                    {activeTab === "messages"      && `Client Messages: ${activeClient.name}`}
+                    {activeTab === "settings"      && "Studio Profile Configurations"}
+                  </h1>
+                  <p className="text-xs text-brand-dark/50 mt-1 max-w-2xl font-semibold leading-relaxed">
+                    {activeTab === "overview"      && "Track client project milestones, coordinate shared folders, and review requests."}
+                    {activeTab === "floorplan"     && "Generate optimized 2D/3D floor layouts using AI. Adjust rooms, styles, and prompt parameters."}
+                    {activeTab === "boq"           && "Adjust structural masonry rates, coordinate markups, and construct standard cost models."}
+                    {activeTab === "scanAnalyzer"  && "Upload a floor plan image or PDF — AI extracts dimensions, walls, roof & foundation, then auto-generates a full BOQ ready to send to your client."}
+                    {activeTab === "files"         && "Maintain blueprints, upload rendering proposals, and audit client structural specs."}
+                    {activeTab === "messages"      && "Coordinate client alignment meetings, verify layout changes, and clarify budgets."}
+                    {activeTab === "settings"      && "Configure studio portfolio descriptions, active location settings, and studio credentials."}
+                  </p>
+                </div>
+              </div>
+
+              {/* TAB CONTENTS */}
 
           {/* 1. OVERVIEW & CLIENTS TAB */}
           {activeTab === "overview" && (
@@ -501,6 +588,63 @@ export default function ArchitectPage() {
                         </div>
                       );
                     })}
+                  </div>
+                </div>
+
+                {/* Saved & Sent Quotes Directory */}
+                <div className="bg-white border border-brand-dark/5 rounded-3xl shadow-sm overflow-hidden">
+                  <div className="px-6 py-5 border-b border-brand-dark/5 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-base font-black text-brand-dark flex items-center gap-2">
+                        <History className="h-5 w-5 text-brand-gold" />
+                        Saved &amp; Sent BOQ Quotes
+                      </h3>
+                      <p className="text-xs text-brand-dark/50">Load, review, or edit client BoQ statements and drafts.</p>
+                    </div>
+                  </div>
+
+                  <div className="divide-y divide-brand-dark/5">
+                    {sentQuotesList.length === 0 ? (
+                      <div className="p-8 text-center text-xs text-brand-dark/40 font-semibold uppercase tracking-widest">
+                        No saved quotes found
+                      </div>
+                    ) : (
+                      sentQuotesList.map((quote) => (
+                        <div key={quote.id} className="p-6 flex flex-col sm:flex-row justify-between sm:items-center gap-4 hover:bg-brand-gold/5 transition-all">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-extrabold text-sm text-brand-dark">{quote.clientName}</h4>
+                              <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-brand-gold/15 text-brand-gold border border-brand-gold/25 uppercase">
+                                ${quote.total.toLocaleString()}
+                              </span>
+                            </div>
+                            <span className="text-xs text-brand-dark/50 font-bold block truncate max-w-[250px]">
+                              File: {quote.fileName || "Scanned Plan"} ({quote.area} m²)
+                            </span>
+                            <span className="text-[10px] text-brand-dark/45 font-semibold block mt-1">
+                              Saved: {new Date(quote.sentAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleLoadSavedQuote(quote)}
+                              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-gold text-white px-4 py-2.5 text-xs font-black hover:bg-brand-gold-dark transition-all cursor-pointer shadow-md"
+                            >
+                              <FileText className="h-4 w-4" />
+                              Load &amp; Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteSavedQuote(quote.id)}
+                              className="p-2.5 rounded-xl hover:bg-rose-500/10 text-brand-dark/40 hover:text-rose-500 transition-all cursor-pointer border border-transparent hover:border-rose-500/10"
+                              title="Delete quote"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
               </div>
@@ -1256,7 +1400,9 @@ export default function ArchitectPage() {
                             sentAt: new Date().toISOString(),
                           };
                           const existing = JSON.parse(localStorage.getItem("domnak_sent_quotes") || "[]");
-                          localStorage.setItem("domnak_sent_quotes", JSON.stringify([quote, ...existing]));
+                          const updated = [quote, ...existing];
+                          localStorage.setItem("domnak_sent_quotes", JSON.stringify(updated));
+                          setSentQuotesList(updated);
                           setShowQuoteModal(false);
                           showToast(`✅ Quote sent to ${selectedClient?.name}!`);
                         }}
@@ -1295,23 +1441,11 @@ export default function ArchitectPage() {
                       </div>
                       <span className="text-sm font-black text-brand-dark mb-1">Drag & drop your floor plan here</span>
                       <span className="text-xs text-brand-dark/40 font-semibold">or click to browse files</span>
-                      <span className="text-[10px] text-brand-dark/30 mt-4 bg-brand-dark/5 px-5 py-1.5 rounded-full font-bold tracking-wide uppercase">PNG · JPG · PDF — Max 30 MB</span>
-                      <input type="file" className="hidden" accept=".png,.jpg,.jpeg,.pdf" onChange={handleScanFileChange} />
+                      <span className="text-[10px] text-brand-dark/30 mt-4 bg-brand-dark/5 px-5 py-1.5 rounded-full font-bold tracking-wide uppercase">PDF — Max 30 MB</span>
+                      <input type="file" className="hidden" accept=".pdf" onChange={handleScanFileChange} />
                     </label>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      {[
-                        { icon: "🧱", label: "Wall Detection" },
-                        { icon: "📐", label: "Area Measurement" },
-                        { icon: "🏠", label: "Roof Analysis" },
-                        { icon: "⛏️", label: "Foundation Type" },
-                      ].map(f => (
-                        <div key={f.label} className="flex flex-col items-center gap-2 bg-[#FAF7F0] border border-brand-dark/5 rounded-xl p-3.5 shadow-sm">
-                          <span className="text-xl">{f.icon}</span>
-                          <span className="text-[10px] font-black text-brand-dark/55 uppercase tracking-wider text-center leading-tight">{f.label}</span>
-                        </div>
-                      ))}
-                    </div>
+
                   </div>
                 </div>
               )}
@@ -1489,8 +1623,31 @@ export default function ArchitectPage() {
               {scanResults && !isScanAnalyzing && (
                 <div className="space-y-6">
 
+                  <style dangerouslySetInnerHTML={{ __html: `
+                    @media print {
+                      body * {
+                        visibility: hidden;
+                      }
+                      #printable-boq-area, #printable-boq-area * {
+                        visibility: visible;
+                      }
+                      #printable-boq-area {
+                        position: absolute;
+                        left: 0;
+                        top: 0;
+                        width: 100%;
+                        display: block !important;
+                      }
+                      .no-print, aside, header, nav, button, input[type="text"], input[type="number"], select {
+                        border: none !important;
+                        background: transparent !important;
+                        box-shadow: none !important;
+                      }
+                    }
+                  `}} />
+
                   {/* Top action bar */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white border border-brand-dark/5 rounded-2xl px-5 py-4 shadow-sm">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white border border-brand-dark/5 rounded-2xl px-5 py-4 shadow-sm no-print">
                     <div className="flex items-center gap-3">
                       <div className="h-9 w-9 rounded-xl bg-emerald-500/10 border border-emerald-200 flex items-center justify-center">
                         <CheckCircle className="h-5 w-5 text-emerald-500" />
@@ -1500,7 +1657,21 @@ export default function ArchitectPage() {
                         <p className="text-xs text-brand-dark/50">{scanFile?.name} &nbsp;·&nbsp; {scanResults.area} m² detected</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        onClick={handleExportPDF}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-brand-dark/10 text-xs font-black text-brand-dark hover:bg-brand-dark/5 transition-all cursor-pointer"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Save PDF
+                      </button>
+                      <button
+                        onClick={handleSaveDraftQuote}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-brand-dark/10 text-xs font-black text-brand-dark hover:bg-brand-dark/5 transition-all cursor-pointer"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        Save Draft
+                      </button>
                       <button
                         id="btn-new-analysis"
                         onClick={resetScanState}
@@ -1520,7 +1691,7 @@ export default function ArchitectPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                  <div id="printable-boq-area" className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
 
                     {/* Left: Analysis summary */}
                     <div className="lg:col-span-4 space-y-4">
@@ -1770,88 +1941,56 @@ export default function ArchitectPage() {
 
           {/* 4. CLIENT MESSAGING TAB */}
           {activeTab === "messages" && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start animate-in fade-in duration-300">
-              
-              {/* Clients side-bar lists */}
-              <div className="lg:col-span-4 bg-white border border-brand-dark/5 rounded-3xl p-6 shadow-sm space-y-4">
-                <h3 className="font-black text-sm text-brand-dark border-b border-brand-dark/5 pb-3">Active Chats</h3>
-                <div className="space-y-3">
-                  {clients.map(c => {
-                    const isSelected = selectedClientId === c.id;
-                    const chats = clientChats[c.id] || [];
-                    const lastMsg = chats.length > 0 ? chats[chats.length - 1].text : "No messages yet";
-                    return (
-                      <div
-                        key={c.id}
-                        onClick={() => setSelectedClientId(c.id)}
-                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer ${isSelected ? "border-brand-gold bg-brand-gold/5" : "border-brand-dark/5 hover:border-brand-gold/30 bg-[#FAF7F0]/40"}`}
-                      >
-                        <div className="flex justify-between items-center">
-                          <span className="font-bold text-xs text-brand-dark">{c.name}</span>
-                          <span className="text-[8px] text-brand-dark/40 font-mono">11:00 AM</span>
-                        </div>
-                        <p className="text-[10px] text-brand-dark/50 truncate font-medium mt-1">{lastMsg}</p>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Chat Window Panel */}
-              <div className="lg:col-span-8 bg-white border border-brand-dark/5 rounded-3xl shadow-sm flex flex-col h-[520px] overflow-hidden">
-                <div className="bg-[#FAF7F0] border-b border-brand-dark/5 px-6 py-4 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                    <span className="text-xs font-black text-brand-dark uppercase tracking-wider">Chatting with {activeClient.name}</span>
-                  </div>
-                  <span className="text-[9px] font-extrabold text-brand-gold bg-brand-gold/10 border border-brand-gold/20 rounded-full px-2.5 py-1 uppercase tracking-wider">
-                    {activeClient.project}
-                  </span>
-                </div>
-
-                <div className="flex-grow overflow-y-auto p-6 space-y-4 bg-[#FAF7F0]/30 shadow-inner">
-                  {(clientChats[selectedClientId] || []).map((msg, index) => (
-                    <div key={index} className={`flex ${msg.sender === "architect" ? "justify-end" : "justify-start"}`}>
-                      <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-xs leading-relaxed border font-semibold shadow-sm ${msg.sender === "architect" ? "bg-brand-dark text-white border-transparent rounded-tr-none" : "bg-white text-brand-dark border-brand-dark/5 rounded-tl-none"}`}>
-                        {msg.sender === "user" && (
-                          <div className="text-[9px] font-black text-brand-gold tracking-wider uppercase mb-1.5">{activeClient.name}</div>
-                        )}
-                        <p>{msg.text}</p>
-                        <span className="text-[8px] opacity-45 font-mono text-right block mt-1">{msg.time}</span>
-                      </div>
-                    </div>
-                  ))}
-
-                  {isClientTyping && (
-                    <div className="flex justify-start">
-                      <div className="bg-white text-brand-dark border border-brand-dark/5 rounded-2xl rounded-tl-none px-4 py-3 shadow-sm flex items-center gap-1.5">
-                        <span className="h-2 w-2 rounded-full bg-brand-dark/30 animate-bounce" />
-                        <span className="h-2 w-2 rounded-full bg-brand-dark/30 animate-bounce [animation-delay:0.2s]" />
-                        <span className="h-2 w-2 rounded-full bg-brand-dark/30 animate-bounce [animation-delay:0.4s]" />
-                      </div>
-                    </div>
-                  )}
-                  <div ref={chatBottomRef} />
-                </div>
-
-                <form onSubmit={handleChatSubmit} className="border-t border-brand-dark/5 bg-[#FAF7F0] p-4 flex gap-2.5">
-                  <input
-                    type="text"
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    placeholder={`Type a message to ${activeClient.name}...`}
-                    className="flex-grow bg-white border border-brand-dark/10 rounded-full px-5 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold transition-all shadow-inner font-semibold text-brand-dark"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!chatInput.trim() || isClientTyping}
-                    className="h-10 w-10 bg-brand-gold hover:bg-brand-gold-dark text-white rounded-full flex items-center justify-center shrink-0 disabled:opacity-50 transition-all shadow cursor-pointer active:scale-97"
-                  >
-                    <Send className="h-4 w-4" />
-                  </button>
-                </form>
-              </div>
-
+            <div className="animate-in fade-in duration-300">
+              <ChatUI
+                contacts={clients.map(c => {
+                  const chats = clientChats[c.id] || [];
+                  const last = chats[chats.length - 1];
+                  return {
+                    id: c.id,
+                    name: c.name,
+                    role: c.project,
+                    initials: c.name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2),
+                    lastMsg: last?.text || "No messages yet",
+                    time: last?.time || "",
+                    project: c.project,
+                  };
+                })}
+                selectedId={selectedClientId}
+                onSelectContact={(id) => setSelectedClientId(id)}
+                messages={(clientChats[selectedClientId] || []).map(m => ({
+                  sender: m.sender === "architect" ? "me" : "other",
+                  text: m.text,
+                  time: m.time,
+                }))}
+                onSendMessage={(text) => {
+                  const updatedHistory = [
+                    ...(clientChats[selectedClientId] || []),
+                    { sender: "architect", text, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }
+                  ];
+                  setClientChats(prev => ({ ...prev, [selectedClientId]: updatedHistory }));
+                  setIsClientTyping(true);
+                  setTimeout(() => {
+                    let clientText = `Thanks for the update! Let me verify the dimensions on the estimator.`;
+                    const t = text.toLowerCase();
+                    if (t.includes("price") || t.includes("cost") || t.includes("budget")) clientText = `That sounds fair. Can you update partition walls to trim cement consumption by 5%?`;
+                    else if (t.includes("drawing") || t.includes("layout") || t.includes("pdf")) clientText = `Got it. I'll run it through the DOMNAK scanner tool now.`;
+                    setClientChats(prev => ({ ...prev, [selectedClientId]: [...(prev[selectedClientId] || []), { sender: "user", text: clientText, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }] }));
+                    setIsClientTyping(false);
+                  }, 1500);
+                }}
+                isTyping={isClientTyping}
+                activeContact={(() => {
+                  const c = clients.find(x => x.id === selectedClientId) || clients[0];
+                  return {
+                    name: c.name,
+                    role: c.project,
+                    project: c.project,
+                    initials: c.name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2),
+                  };
+                })()}
+                placeholder={`Message ${(clients.find(x => x.id === selectedClientId) || clients[0])?.name}…`}
+              />
             </div>
           )}
 
@@ -1923,10 +2062,10 @@ export default function ArchitectPage() {
             </div>
           )}
 
+            </div>
+          </div>
         </div>
-      </main>
-
-      <Footer />
+      </div>
     </>
   );
 }

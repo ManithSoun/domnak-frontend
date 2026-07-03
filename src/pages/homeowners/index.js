@@ -3,6 +3,7 @@ import Head from "next/head";
 import Link from "next/link";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
+import ChatUI from "@/components/ChatUI";
 import { useAuth } from "../../../router/useAuth";
 import {
   UploadCloud,
@@ -18,6 +19,7 @@ import {
   RotateCcw,
   Sparkles,
   ArrowRight,
+  ArrowLeft,
   Info,
   Layers,
   Download,
@@ -42,7 +44,8 @@ import {
   Mail as MailIcon,
   Briefcase,
   Store,
-  Calculator
+  Calculator,
+  LogOut
 } from "lucide-react";
 
 // Preset configurations for simulated AI extraction
@@ -110,10 +113,10 @@ const CATEGORIES = [
 const FLOORS = ["Ground Floor", "1st Floor", "2nd Floor", "3rd Floor"];
 
 export default function HomeownersPage() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
 
   // Sidebar Tab State
-  const [sidebarTab, setSidebarTab] = useState("home"); // "home" | "quotes" | "estimator" | "suppliers" | "chat"
+  const [sidebarTab, setSidebarTab] = useState("home"); // "home" | "quotes" | "history" | "suppliers" | "chat"
 
   // Stored Audit History & Profile details
   const [auditHistory, setAuditHistory] = useState([]);
@@ -137,6 +140,13 @@ export default function HomeownersPage() {
   const [analysisStep, setAnalysisStep] = useState(0);
   const [showResults, setShowResults] = useState(false);
   const [activeTab, setActiveTab] = useState("spreadsheet"); // "spreadsheet" | "boq" | "chat"
+  
+  // Selection / Manual Input States
+  const [uploadMethod, setUploadMethod] = useState(null); // null | "pdf" | "manual"
+  const [manualProjectName, setManualProjectName] = useState("");
+  const [manualContractorName, setManualContractorName] = useState("");
+  const [manualQuotedPrice, setManualQuotedPrice] = useState("");
+  const [manualQualityTier, setManualQualityTier] = useState("premium");
   
   // Project State
   const [projectName, setProjectName] = useState("");
@@ -205,6 +215,7 @@ export default function HomeownersPage() {
     if (selectedSavedAuditId === id) {
       setSelectedSavedAuditId(null);
       setShowResults(false);
+      setUploadMethod(null);
       setProjectName("");
       setContractorName("");
       setQuotedPrice(0);
@@ -287,6 +298,58 @@ export default function HomeownersPage() {
     setAnalysisStep(0);
     setShowResults(false);
     setSidebarTab("quotes");  // navigate to Quotes tab during analysis
+  };
+
+  const handleCreateManualQuote = () => {
+    // Determine preset key based on tier
+    let presetKey = "condo";
+    if (manualQualityTier === "premium") presetKey = "villa";
+    if (manualQualityTier === "luxury") presetKey = "penthouse";
+
+    const data = PRESETS[presetKey];
+    const initializedRooms = JSON.parse(JSON.stringify(data.rooms));
+
+    // Initialize layout states
+    setProjectName(manualProjectName);
+    setContractorName(manualContractorName);
+    setQuotedPrice(parseFloat(manualQuotedPrice) || 0);
+    setQualityTier(manualQualityTier);
+    setRooms(initializedRooms);
+    setActivePreset(presetKey);
+
+    // Set active floor based on available floors
+    const floorsInPreset = [...new Set(initializedRooms.map(r => r.floor))];
+    if (floorsInPreset.length > 0) {
+      setSelectedFloor(floorsInPreset[0]);
+    }
+
+    setIsAnalyzing(false);
+    setShowResults(true);
+    setActiveTab("spreadsheet");
+    showToast("Manual Quote Created!");
+
+    // Auto-save to localStorage history
+    const auditId = `audit_${Date.now()}`;
+    setSelectedSavedAuditId(auditId);
+    const newAudit = {
+      id: auditId,
+      date: new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+      projectName: manualProjectName,
+      contractorName: manualContractorName,
+      quotedPrice: parseFloat(manualQuotedPrice) || 0,
+      qualityTier: manualQualityTier,
+      rooms: initializedRooms
+    };
+
+    const updatedHistory = [newAudit, ...auditHistory];
+    setAuditHistory(updatedHistory);
+    localStorage.setItem("domnak_audit_history", JSON.stringify(updatedHistory));
+
+    // Clear form inputs
+    setManualProjectName("");
+    setManualContractorName("");
+    setManualQuotedPrice("");
+    setManualQualityTier("premium");
   };
 
   // Simulated AI Scanner Step Sequencer
@@ -564,10 +627,17 @@ export default function HomeownersPage() {
         {/* ── Sidebar ──────────────────────────────────────────────────── */}
         <aside className="w-[230px] flex-shrink-0 bg-[#1E1C18] flex flex-col h-full">
           {/* Logo */}
-          <div className="px-6 pt-7 pb-4">
+          <div className="px-6 pt-7 pb-4 flex items-center gap-2">
+            <Link 
+              href="/" 
+              className="p-1.5 text-white/55 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+              title="Back to Home"
+            >
+              <ArrowLeft className="h-5 w-5" />
+            </Link>
             <Link href="/" className="inline-block">
               <img
-                src="/assets/domnak-logo-with-kh-cropped.png"
+                src="/assets/domnak-circle-logo.png"
                 alt="DomNak Logo"
                 className="h-10 w-auto object-contain"
               />
@@ -579,7 +649,7 @@ export default function HomeownersPage() {
             {[
               { id: "home",      label: "Home",      icon: LayoutDashboard },
               { id: "quotes",    label: "Quotes",    icon: FileText },
-              { id: "estimator", label: "Estimator", icon: Calculator },
+              { id: "history",    label: "History",    icon: History },
               { id: "suppliers", label: "Suppliers", icon: Store },
               { id: "chat",      label: "Chat",      icon: MessageSquare },
             ].map(({ id, label, icon: Icon }) => (
@@ -601,16 +671,33 @@ export default function HomeownersPage() {
           </nav>
 
           {/* User chip at bottom */}
-          <div className="px-4 pb-6 pt-4 border-t border-white/8">
-            <div className="flex items-center gap-3">
-              <div className="h-8 w-8 rounded-full bg-brand-gold flex items-center justify-center text-white text-xs font-black flex-shrink-0">
+          <div className="px-4 pb-6 pt-4 border-t border-white/8 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="h-8 w-8 rounded-full bg-brand-gold flex items-center justify-center text-white text-xs font-black flex-shrink-0 select-none uppercase">
                 {(user?.name || "H").charAt(0).toUpperCase()}
               </div>
               <div className="min-w-0">
                 <p className="text-xs font-black text-white truncate">{user?.name || "Homeowner"}</p>
-                <p className="text-[10px] text-white/40 font-semibold">Homeowner Portal</p>
+                <p className="text-[10px] text-white/40 font-semibold leading-tight">Homeowner Portal</p>
               </div>
             </div>
+
+            {user ? (
+              <button
+                onClick={logout}
+                className="p-2 text-white/45 hover:text-rose-500 hover:bg-rose-500/10 rounded-xl transition-all duration-200 cursor-pointer shrink-0"
+                title="Log Out"
+              >
+                <LogOut className="h-4.5 w-4.5" />
+              </button>
+            ) : (
+              <Link
+                href="/login"
+                className="text-[10px] font-extrabold text-brand-gold hover:text-brand-gold/80 transition-colors uppercase tracking-wider shrink-0"
+              >
+                Log In
+              </Link>
+            )}
           </div>
         </aside>
 
@@ -675,7 +762,7 @@ export default function HomeownersPage() {
                       </div>
                       <div className="flex justify-between text-[10px] text-[#1E1C18]/40 font-semibold">
                         <span>60% planned</span>
-                        <button onClick={() => setSidebarTab("estimator")} className="text-brand-gold font-bold hover:underline cursor-pointer">Adjust →</button>
+                        <button onClick={() => setSidebarTab("history")} className="text-brand-gold font-bold hover:underline cursor-pointer">Adjust →</button>
                       </div>
                     </div>
                   </div>
@@ -769,42 +856,213 @@ export default function HomeownersPage() {
                 </div>
 
                 {!showResults && !isAnalyzing ? (
-                  /* PHASE 1: Upload */
-                  <div className="max-w-2xl mx-auto">
-                    <div className="bg-white rounded-3xl border border-black/5 shadow-lg p-8 lg:p-10 relative overflow-hidden flex flex-col gap-6">
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-brand-gold/5 rounded-bl-full -z-10" />
-                      <div>
-                        <h2 className="text-2xl font-black text-[#1E1C18] tracking-tight mb-2">Upload Contractor Document</h2>
-                        <p className="text-xs text-[#1E1C18]/50 leading-relaxed">Select your contractor's quote document, BoQ statement, or budget estimation layout sheet. Supporting PDF, JPEG, or PNG formats up to 15MB.</p>
-                      </div>
-                      <form onSubmit={handleFileUpload} className="space-y-6">
-                        <label id="dropzone-label" className="flex flex-col items-center justify-center border-2 border-dashed border-brand-gold/30 hover:border-brand-gold bg-[#FAF7F0]/60 hover:bg-[#FAF7F0] rounded-2xl p-8 sm:p-10 text-center cursor-pointer transition-all duration-300 group shadow-inner">
-                          <div className="h-16 w-16 bg-brand-gold/10 rounded-2xl flex items-center justify-center text-brand-gold group-hover:scale-105 group-hover:bg-brand-gold group-hover:text-white transition-all duration-300 mb-4 shadow-sm"><UploadCloud className="h-8 w-8" /></div>
-                          <span className="text-sm font-black text-[#1E1C18] block tracking-tight group-hover:text-brand-gold transition-colors">Drag &amp; drop your quote file here</span>
-                          <span className="text-xs text-[#1E1C18]/45 block mt-1">or click to browse local files</span>
-                          <div className="flex gap-2 mt-4">
-                            <span className="text-[10px] font-extrabold px-3 py-1 rounded-full bg-white border border-brand-gold/20 text-brand-gold shadow-sm">PDF</span>
-                            <span className="text-[10px] font-extrabold px-3 py-1 rounded-full bg-white border border-brand-gold/20 text-brand-gold shadow-sm">JPEG</span>
-                            <span className="text-[10px] font-extrabold px-3 py-1 rounded-full bg-white border border-brand-gold/20 text-brand-gold shadow-sm">PNG</span>
-                          </div>
-                          <input id="quote-file-input" type="file" accept=".pdf,.png,.jpg,.jpeg" className="hidden" onChange={() => startAnalysis("villa")} />
-                        </label>
-                        <div className="flex flex-wrap items-center justify-center gap-4 text-[10px] font-extrabold text-[#1E1C18]/40 py-2 border-y border-[#1E1C18]/5">
-                          <span className="flex items-center gap-1"><Lock className="h-3 w-3 text-brand-gold" /> SSL SECURE ENCRYPTION</span>
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#1E1C18]/20" />
-                          <span className="flex items-center gap-1"><Shield className="h-3 w-3 text-brand-gold" /> 100% PRIVATE DATA</span>
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#1E1C18]/20" />
-                          <span>MAX 15 MB LIMIT</span>
+                  /* PHASE 1: Choice or Upload/Manual */
+                  <div className="max-w-2xl mx-auto animate-in fade-in duration-300">
+                    {uploadMethod === null ? (
+                      /* Method Selection Screen */
+                      <div className="bg-white rounded-3xl border border-black/5 shadow-lg p-8 lg:p-10 relative overflow-hidden flex flex-col gap-6">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-brand-gold/5 rounded-bl-full -z-10" />
+                        <div className="text-center max-w-md mx-auto">
+                          <h2 className="text-2xl font-black text-[#1E1C18] tracking-tight mb-2">Quote Auditing Setup</h2>
+                          <p className="text-xs text-[#1E1C18]/50 leading-relaxed">
+                            Choose how you would like to input your contractor's quote. We will run comparison metrics against regional Cambodian indexes.
+                          </p>
                         </div>
-                      </form>
-                      <div>
-                        <h4 className="text-xs font-black text-[#1E1C18] uppercase tracking-wider mb-2.5 flex items-center gap-1.5"><Sparkles className="h-3.5 w-3.5 text-brand-gold" />Focus Instructions for AI (Optional)</h4>
-                        <textarea placeholder="e.g. 'Flag items above Phnom Penh 2025 index' or 'Separate balcony from bedroom costs'..." rows={2} className="w-full text-xs bg-[#FAF7F0] border border-[#1E1C18]/10 rounded-xl px-4 py-3 text-[#1E1C18] placeholder:text-[#1E1C18]/30 focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all shadow-inner" />
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
+                          {/* Option 1: PDF Upload */}
+                          <button
+                            onClick={() => setUploadMethod("pdf")}
+                            className="flex flex-col items-center justify-between p-6 rounded-2xl border-2 border-[#1E1C18]/5 hover:border-brand-gold/50 bg-[#FAF7F0]/40 hover:bg-[#FAF7F0] text-center cursor-pointer transition-all duration-300 group shadow-sm hover:shadow-md"
+                          >
+                            <div className="h-12 w-12 bg-brand-gold/10 rounded-xl flex items-center justify-center text-brand-gold group-hover:scale-105 group-hover:bg-brand-gold group-hover:text-white transition-all duration-300 mb-4 shadow-inner">
+                              <UploadCloud className="h-6 w-6" />
+                            </div>
+                            <div className="flex-1 flex flex-col justify-center">
+                              <span className="text-sm font-black text-[#1E1C18] block tracking-tight group-hover:text-brand-gold transition-colors">Upload PDF Quote</span>
+                              <span className="text-[11px] text-[#1E1C18]/50 block mt-2 font-medium leading-relaxed">
+                                Upload your constructor quote PDF to let our AI scan and analyze rates automatically.
+                              </span>
+                            </div>
+                            <span className="text-[9px] font-black tracking-wider uppercase text-brand-gold bg-brand-gold/10 border border-brand-gold/20 rounded-full px-2.5 py-1 mt-4">
+                              We only accept PDF
+                            </span>
+                          </button>
+
+                          {/* Option 2: Manual Input */}
+                          <button
+                            onClick={() => setUploadMethod("manual")}
+                            className="flex flex-col items-center justify-between p-6 rounded-2xl border-2 border-[#1E1C18]/5 hover:border-brand-gold/50 bg-[#FAF7F0]/40 hover:bg-[#FAF7F0] text-center cursor-pointer transition-all duration-300 group shadow-sm hover:shadow-md"
+                          >
+                            <div className="h-12 w-12 bg-brand-gold/10 rounded-xl flex items-center justify-center text-brand-gold group-hover:scale-105 group-hover:bg-brand-gold group-hover:text-white transition-all duration-300 mb-4 shadow-inner">
+                              <FileText className="h-6 w-6" />
+                            </div>
+                            <div className="flex-1 flex flex-col justify-center">
+                              <span className="text-sm font-black text-[#1E1C18] block tracking-tight group-hover:text-brand-gold transition-colors">Manually Input Quote</span>
+                              <span className="text-[11px] text-[#1E1C18]/50 block mt-2 font-medium leading-relaxed">
+                                Manually type in the project name, contractor information, and custom pricing parameters.
+                              </span>
+                            </div>
+                            <span className="text-[9px] font-black tracking-wider uppercase text-[#1E1C18]/45 bg-[#1E1C18]/5 border border-[#1E1C18]/10 rounded-full px-2.5 py-1 mt-4">
+                              Line-by-Line setup
+                            </span>
+                          </button>
+                        </div>
                       </div>
-                      <button onClick={() => startAnalysis("villa")} className="w-full bg-brand-gold hover:bg-brand-gold-dark text-white rounded-xl py-3.5 px-6 font-extrabold flex items-center justify-center gap-2 shadow-lg hover:shadow-brand-gold/20 transition-all cursor-pointer group">
-                        <span>Scan &amp; audit quote</span><ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
-                      </button>
-                    </div>
+                    ) : uploadMethod === "pdf" ? (
+                      /* PHASE 1: Upload (PDF only) */
+                      <div className="bg-white rounded-3xl border border-black/5 shadow-lg p-8 lg:p-10 relative overflow-hidden flex flex-col gap-6">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-brand-gold/5 rounded-bl-full -z-10" />
+                        <div className="flex items-center justify-between">
+                          <button
+                            onClick={() => setUploadMethod(null)}
+                            className="inline-flex items-center gap-1.5 text-[11px] font-black text-brand-gold hover:underline cursor-pointer uppercase tracking-wider"
+                          >
+                            ← Back to options
+                          </button>
+                          <span className="text-[10px] font-black text-brand-gold bg-brand-gold/10 border border-brand-gold/20 rounded-full px-2.5 py-1 uppercase tracking-wider">
+                            PDF Quote Upload
+                          </span>
+                        </div>
+                        <div>
+                          <h2 className="text-2xl font-black text-[#1E1C18] tracking-tight mb-2">Upload Contractor PDF</h2>
+                          <p className="text-xs text-[#1E1C18]/50 leading-relaxed">
+                            Select your contractor's quote document or BoQ statement. We only accept PDF format up to 15MB.
+                          </p>
+                        </div>
+                        <form onSubmit={handleFileUpload} className="space-y-6">
+                          <label id="dropzone-label" className="flex flex-col items-center justify-center border-2 border-dashed border-brand-gold/30 hover:border-brand-gold bg-[#FAF7F0]/60 hover:bg-[#FAF7F0] rounded-2xl p-8 sm:p-10 text-center cursor-pointer transition-all duration-300 group shadow-inner">
+                            <div className="h-16 w-16 bg-brand-gold/10 rounded-2xl flex items-center justify-center text-brand-gold group-hover:scale-105 group-hover:bg-brand-gold group-hover:text-white transition-all duration-300 mb-4 shadow-sm">
+                              <UploadCloud className="h-8 w-8" />
+                            </div>
+                            <span className="text-sm font-black text-[#1E1C18] block tracking-tight group-hover:text-brand-gold transition-colors">
+                              Drag &amp; drop your quote PDF here
+                            </span>
+                            <span className="text-xs text-[#1E1C18]/45 block mt-1">or click to browse local files</span>
+                            <div className="flex gap-2 mt-4">
+                              <span className="text-[10px] font-extrabold px-4 py-1.5 rounded-full bg-brand-gold text-white shadow-md border border-brand-gold/20">
+                                PDF ONLY
+                              </span>
+                            </div>
+                            <input
+                              id="quote-file-input"
+                              type="file"
+                              accept=".pdf"
+                              className="hidden"
+                              onChange={() => startAnalysis("villa")}
+                            />
+                          </label>
+                          <div className="flex flex-wrap items-center justify-center gap-4 text-[10px] font-extrabold text-[#1E1C18]/40 py-2 border-y border-[#1E1C18]/5">
+                            <span className="flex items-center gap-1"><Lock className="h-3 w-3 text-brand-gold" /> SSL SECURE ENCRYPTION</span>
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#1E1C18]/20" />
+                            <span className="flex items-center gap-1"><Shield className="h-3 w-3 text-brand-gold" /> 100% PRIVATE DATA</span>
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#1E1C18]/20" />
+                            <span>MAX 15 MB LIMIT</span>
+                          </div>
+                        </form>
+                        <div>
+                          <h4 className="text-xs font-black text-[#1E1C18] uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                            <Sparkles className="h-3.5 w-3.5 text-brand-gold" />Focus Instructions for AI (Optional)
+                          </h4>
+                          <textarea
+                            placeholder="e.g. 'Flag items above Phnom Penh 2025 index' or 'Separate balcony from bedroom costs'..."
+                            rows={2}
+                            className="w-full text-xs bg-[#FAF7F0] border border-[#1E1C18]/10 rounded-xl px-4 py-3 text-[#1E1C18] placeholder:text-[#1E1C18]/30 focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all shadow-inner"
+                          />
+                        </div>
+                        <button
+                          onClick={() => startAnalysis("villa")}
+                          className="w-full bg-brand-gold hover:bg-brand-gold-dark text-white rounded-xl py-3.5 px-6 font-extrabold flex items-center justify-center gap-2 shadow-lg hover:shadow-brand-gold/20 transition-all cursor-pointer group"
+                        >
+                          <span>Scan &amp; audit quote</span>
+                          <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
+                        </button>
+                      </div>
+                    ) : (
+                      /* PHASE 1: Manual Input Form */
+                      <div className="bg-white rounded-3xl border border-black/5 shadow-lg p-8 lg:p-10 relative overflow-hidden flex flex-col gap-6">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-brand-gold/5 rounded-bl-full -z-10" />
+                        <div className="flex items-center justify-between">
+                          <button
+                            onClick={() => setUploadMethod(null)}
+                            className="inline-flex items-center gap-1.5 text-[11px] font-black text-brand-gold hover:underline cursor-pointer uppercase tracking-wider"
+                          >
+                            ← Back to options
+                          </button>
+                          <span className="text-[10px] font-black text-brand-gold bg-brand-gold/10 border border-brand-gold/20 rounded-full px-2.5 py-1 uppercase tracking-wider">
+                            Manual Input
+                          </span>
+                        </div>
+                        <div>
+                          <h2 className="text-2xl font-black text-[#1E1C18] tracking-tight mb-2">Create Custom Quote</h2>
+                          <p className="text-xs text-[#1E1C18]/50 leading-relaxed">
+                            Fill in your contractor's quote details. We will initialize a dynamic spatial room model which you can customize line-by-line.
+                          </p>
+                        </div>
+                        
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-[10px] font-black text-[#1E1C18]/55 uppercase tracking-wider mb-2">Project Name</label>
+                            <input
+                              type="text"
+                              value={manualProjectName}
+                              onChange={(e) => setManualProjectName(e.target.value)}
+                              placeholder="e.g. 2-Story Modern Villa Restoration"
+                              className="w-full text-xs bg-[#FAF7F0] border border-[#1E1C18]/10 rounded-xl px-4 py-3 text-[#1E1C18] placeholder:text-[#1E1C18]/30 focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all shadow-inner"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-[10px] font-black text-[#1E1C18]/55 uppercase tracking-wider mb-2">Contractor / Builder Name</label>
+                              <input
+                                type="text"
+                                value={manualContractorName}
+                                onChange={(e) => setManualContractorName(e.target.value)}
+                                placeholder="e.g. BuildCorp Cambodia"
+                                className="w-full text-xs bg-[#FAF7F0] border border-[#1E1C18]/10 rounded-xl px-4 py-3 text-[#1E1C18] placeholder:text-[#1E1C18]/30 focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all shadow-inner"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-black text-[#1E1C18]/55 uppercase tracking-wider mb-2">Quoted Amount (USD)</label>
+                              <input
+                                type="number"
+                                value={manualQuotedPrice}
+                                onChange={(e) => setManualQuotedPrice(e.target.value)}
+                                placeholder="e.g. 145000"
+                                className="w-full text-xs bg-[#FAF7F0] border border-[#1E1C18]/10 rounded-xl px-4 py-3 text-[#1E1C18] placeholder:text-[#1E1C18]/30 focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all shadow-inner"
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-black text-[#1E1C18]/55 uppercase tracking-wider mb-2">Quality Tier & Material Class</label>
+                            <select
+                              value={manualQualityTier}
+                              onChange={(e) => setManualQualityTier(e.target.value)}
+                              className="w-full text-xs bg-[#FAF7F0] border border-[#1E1C18]/10 rounded-xl px-4 py-3 text-[#1E1C18] focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all cursor-pointer font-bold"
+                            >
+                              <option value="premium">Premium Class (Teak wood, marble finish - est. $480/sqm)</option>
+                              <option value="standard">Standard Class (Standard tiles, local brick - est. $350/sqm)</option>
+                              <option value="luxury">Luxury Class (Smart controls, high imports - est. $680/sqm)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={handleCreateManualQuote}
+                          disabled={!manualProjectName || !manualContractorName || !manualQuotedPrice}
+                          className={`w-full text-white rounded-xl py-3.5 px-6 font-extrabold flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer group ${
+                            manualProjectName && manualContractorName && manualQuotedPrice
+                              ? "bg-brand-gold hover:bg-brand-gold-dark hover:shadow-brand-gold/20"
+                              : "bg-[#1E1C18]/25 cursor-not-allowed shadow-none"
+                          }`}
+                        >
+                          <span>Initialize manual layout</span>
+                          <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ) : isAnalyzing ? (
                   /* PHASE 2: Scanning */
@@ -836,7 +1094,7 @@ export default function HomeownersPage() {
                       <div className="flex flex-wrap items-center gap-3">
                         <button onClick={() => { const a={id:selectedSavedAuditId||`audit_${Date.now()}`,date:new Date().toLocaleDateString("en-US",{year:"numeric",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}),projectName,contractorName,quotedPrice,qualityTier,rooms:JSON.parse(JSON.stringify(rooms))}; saveAuditToHistory(a); showToast("Audit saved!"); }} className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 px-4 py-2.5 text-xs font-extrabold text-white transition-all cursor-pointer shadow-md"><CheckCircle className="h-3.5 w-3.5" />Save Audit</button>
                         <button onClick={resetToPresetDefaults} className="inline-flex items-center gap-1.5 rounded-xl bg-[#1E1C18]/5 hover:bg-[#1E1C18]/10 px-4 py-2.5 text-xs font-extrabold text-[#1E1C18] transition-all cursor-pointer border border-[#1E1C18]/5 shadow-sm"><RotateCcw className="h-3.5 w-3.5" />Reset</button>
-                        <button onClick={() => { setShowResults(false); setActivePreset(null); setSelectedSavedAuditId(null); }} className="inline-flex items-center gap-1.5 rounded-xl bg-brand-gold hover:bg-brand-gold-dark px-4 py-2.5 text-xs font-extrabold text-white transition-all cursor-pointer shadow-md">New Audit</button>
+                        <button onClick={() => { setShowResults(false); setActivePreset(null); setSelectedSavedAuditId(null); setUploadMethod(null); }} className="inline-flex items-center gap-1.5 rounded-xl bg-brand-gold hover:bg-brand-gold-dark px-4 py-2.5 text-xs font-extrabold text-white transition-all cursor-pointer shadow-md">New Audit</button>
                       </div>
                     </div>
 
@@ -970,7 +1228,7 @@ export default function HomeownersPage() {
             )}
 
             {/* ──── ESTIMATOR TAB ─────────────────────────────────────── */}
-            {sidebarTab === "estimator" && (
+            {sidebarTab === "history" && (
               <div className="space-y-6 animate-in fade-in duration-300">
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
                   <div className="lg:col-span-5 bg-white border border-[#1E1C18]/5 rounded-3xl p-6 lg:p-8 shadow-sm">
@@ -1055,42 +1313,39 @@ export default function HomeownersPage() {
 
             {/* ──── CHAT TAB ──────────────────────────────────────────── */}
             {sidebarTab === "chat" && (
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start animate-in fade-in duration-300">
-                <div className="lg:col-span-7 space-y-6">
-                  <div className="bg-white border border-[#1E1C18]/5 rounded-3xl p-6 lg:p-8 shadow-sm space-y-6">
-                    <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 border-b border-[#1E1C18]/5 pb-5">
-                      <div className="flex items-center gap-4"><div className="h-14 w-14 rounded-full bg-brand-gold/15 border border-brand-gold/30 flex items-center justify-center text-brand-gold font-bold text-xl">SM</div><div><h3 className="font-black text-base text-[#1E1C18]">Sopheap Meas</h3><p className="text-xs text-[#1E1C18]/50 font-bold uppercase tracking-wider mt-0.5">Senior Structural Architect</p></div></div>
-                      <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full px-3 py-1 text-[10px] font-extrabold uppercase tracking-wider self-start sm:self-auto"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />Active Partner</span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <a href="tel:+85512345678" className="flex items-center gap-3 bg-[#FAF7F0] border border-[#1E1C18]/5 hover:border-brand-gold/30 rounded-2xl p-4 transition-all text-xs font-semibold text-[#1E1C18]"><Phone className="h-5 w-5 text-brand-gold" /><div><span className="text-[9px] text-[#1E1C18]/45 font-black uppercase tracking-wider block mb-0.5">Phone Contact</span>+855 12 345 678</div></a>
-                      <a href="mailto:sopheap@angkor-studio.com" className="flex items-center gap-3 bg-[#FAF7F0] border border-[#1E1C18]/5 hover:border-brand-gold/30 rounded-2xl p-4 transition-all text-xs font-semibold text-[#1E1C18]"><MailIcon className="h-5 w-5 text-brand-gold" /><div><span className="text-[9px] text-[#1E1C18]/45 font-black uppercase tracking-wider block mb-0.5">Email Address</span>sopheap@angkor-studio.com</div></a>
-                    </div>
-                  </div>
-                  <div className="bg-white border border-[#1E1C18]/5 rounded-3xl shadow-sm overflow-hidden">
-                    <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#1E1C18]/5 px-6 py-5"><div><h3 className="text-base font-black text-[#1E1C18] flex items-center gap-2"><FileText className="h-5 w-5 text-brand-gold" />Shared Project Documents</h3><p className="text-xs text-[#1E1C18]/50">Shared design layouts, 3D renders, and BoQ statements.</p></div><button onClick={() => showToast("Opening local file browser...")} className="inline-flex items-center gap-1.5 rounded-full bg-brand-gold hover:bg-brand-gold-dark px-4 py-2.5 text-xs font-extrabold text-white transition-all shadow-sm cursor-pointer"><UploadCloud className="h-3.5 w-3.5" />Share File</button></div>
-                    <div className="divide-y divide-[#1E1C18]/5">
-                      {[{ name:"Angkor_PremiumVilla_LayoutPlan_V3.pdf", type:"PDF Plan", size:"8.5 MB", date:"Shared 2 days ago" },{ name:"LivingRoom_3DRender_InteriorOptions.png", type:"3D Render", size:"14.2 MB", date:"Shared 2 days ago" },{ name:"StructuralFoundation_ReinforcementDetails.pdf", type:"PDF Spec", size:"4.1 MB", date:"Shared 5 days ago" }].map((file,idx) => (
-                        <div key={idx} className="flex items-center justify-between p-5 hover:bg-brand-gold/5 transition-colors">
-                          <div className="flex items-center gap-3.5 min-w-0"><div className="h-10 w-10 bg-[#FAF7F0] border border-[#1E1C18]/5 rounded-xl flex items-center justify-center text-lg shadow-inner flex-shrink-0">{file.type.includes("PDF")?"📄":"🎨"}</div><div className="min-w-0"><span className="text-xs font-black text-[#1E1C18] block truncate">{file.name}</span><span className="text-[10px] text-[#1E1C18]/45 font-semibold block mt-0.5">{file.type} • {file.size} • {file.date}</span></div></div>
-                          <button onClick={() => showToast(`Downloading ${file.name}...`)} className="inline-flex items-center justify-center p-2.5 rounded-xl bg-brand-gold/10 text-brand-gold hover:bg-brand-gold hover:text-white transition-all cursor-pointer shadow-sm border border-brand-gold/15"><Download className="h-4 w-4" /></button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Architect chat panel */}
-                <div className="lg:col-span-5 bg-white border border-[#1E1C18]/5 rounded-3xl shadow-sm flex flex-col h-[560px] overflow-hidden">
-                  <div className="bg-[#FAF7F0] border-b border-[#1E1C18]/5 px-6 py-4 flex items-center justify-between"><div className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" /><span className="text-xs font-black text-[#1E1C18] uppercase tracking-wider">Chat with Sopheap</span></div><span className="text-[9px] font-extrabold text-brand-gold bg-brand-gold/10 border border-brand-gold/20 rounded-full px-2.5 py-1 uppercase tracking-wider">Angkor Studio</span></div>
-                  <div className="flex-grow overflow-y-auto p-6 space-y-4 bg-[#FAF7F0]/30 shadow-inner">
-                    {architectChat.map((msg,index) => (<div key={index} className={`flex ${msg.sender==="user"?"justify-end":"justify-start"}`}><div className={`max-w-[85%] rounded-2xl px-4 py-3 text-xs leading-relaxed border font-semibold shadow-sm ${msg.sender==="user"?"bg-[#1E1C18] text-white border-transparent rounded-tr-none":"bg-white text-[#1E1C18] border-[#1E1C18]/5 rounded-tl-none"}`}>{msg.sender==="architect"&&(<div className="text-[9px] font-black text-brand-gold tracking-wider uppercase mb-1.5">Sopheap Meas</div>)}<p>{msg.text}</p><span className="text-[8px] opacity-45 font-mono text-right block mt-1">{msg.time}</span></div></div>))}
-                  </div>
-                  <form onSubmit={handleArchitectChatSubmit} className="border-t border-[#1E1C18]/5 bg-[#FAF7F0] p-4 flex gap-2.5">
-                    <input type="text" value={architectInput} onChange={(e) => setArchitectInput(e.target.value)} placeholder="Type a message reply to Sopheap..." className="flex-grow bg-white border border-[#1E1C18]/10 rounded-full px-5 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold transition-all shadow-inner font-semibold text-[#1E1C18]" />
-                    <button type="submit" disabled={!architectInput.trim()} className="h-10 w-10 bg-brand-gold hover:bg-brand-gold-dark text-white rounded-full flex items-center justify-center shrink-0 disabled:opacity-50 transition-all shadow cursor-pointer"><Send className="h-4 w-4" /></button>
-                  </form>
-                </div>
+              <div className="animate-in fade-in duration-300">
+                <ChatUI
+                  contacts={[{
+                    id: "architect",
+                    name: "Sopheap Meas",
+                    role: "Senior Structural Architect",
+                    initials: "SM",
+                    lastMsg: architectChat[architectChat.length - 1]?.text || "No messages yet",
+                    time: architectChat[architectChat.length - 1]?.time || "",
+                    project: "Angkor Architecture Studio",
+                  }]}
+                  selectedId="architect"
+                  onSelectContact={() => {}}
+                  messages={architectChat.map(m => ({
+                    sender: m.sender === "user" ? "me" : "other",
+                    text: m.text,
+                    time: m.time,
+                  }))}
+                  onSendMessage={(text) => {
+                    const userMsg = { sender: "user", text, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
+                    setArchitectChat(prev => [...prev, userMsg]);
+                    setTimeout(() => {
+                      let replyText = "Understood. I am cross-referencing your request with local BoQ building standards. Let me make those adjustments and get back to you.";
+                      const t = text.toLowerCase();
+                      if (t.includes("budget") || t.includes("cost") || t.includes("price")) replyText = "To keep aligned, we can optimize the masonry brick count or transition to standard-tier tile finishes for guest rooms.";
+                      else if (t.includes("dimensions") || t.includes("room") || t.includes("floor")) replyText = "Let me adjust the grid partition coordinates. Conforming to a tighter grid will reduce concrete formwork and steel costs.";
+                      setArchitectChat(prev => [...prev, { sender: "architect", text: replyText, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]);
+                    }, 1500);
+                  }}
+                  isTyping={false}
+                  activeContact={{ name: "Sopheap Meas", role: "Senior Structural Architect", project: "Angkor Studio", initials: "SM" }}
+                  placeholder="Type a message to Sopheap…"
+                />
               </div>
             )}
 
