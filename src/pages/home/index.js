@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { testConnection } from "@/lib/api";
+import { testConnection } from "@/lib/api/index";
 import Header from "@/components/layout/Header";
 import Hero from "@/components/home/Hero";
 import Stats from "@/components/home/Stats";
@@ -41,9 +41,9 @@ export default function Home() {
         <Hero />
         <Stats />
         <Features />
+        <About />
         <HowItWorks />
         <UserFeedback />
-        <About />
         <CallToAction />
       </main>
       <Footer />

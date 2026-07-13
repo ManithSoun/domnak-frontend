@@ -1,0 +1,746 @@
+@reference "../../styles/globals.css";
+
+/* Base full-viewport layout */
+.pageLayoutContainer {
+  @apply flex h-screen overflow-hidden bg-gradient-to-br from-[#FCFAF7] via-[#F6F4ED] to-[#ECE9DF];
+}
+
+/* Sidebar styling */
+.sidebar {
+  @apply w-[230px] flex-shrink-0 bg-[#A68A3D] flex flex-col h-full border-r border-[#8d7330] shadow-2xl relative z-20;
+}
+
+.topDecoration {
+  @apply absolute top-0 inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-brand-gold/30 to-transparent;
+}
+
+.logoWrapper {
+  @apply px-4 pt-8 pb-5 flex items-center justify-center;
+}
+
+.backBtn {
+  @apply p-2 text-white/40 hover:text-brand-gold hover:bg-white/5 rounded-xl transition-all duration-200 cursor-pointer shadow-sm;
+}
+
+.logoLink {
+  @apply flex items-center justify-center transition-transform hover:scale-102 duration-300;
+}
+
+.logoImage {
+  @apply h-14 w-auto object-contain filter drop-shadow-[0_2px_8px_rgba(0,0,0,0.1)];
+}
+
+.navContainer {
+  @apply flex-1 px-3 space-y-1;
+}
+
+.navButton {
+  @apply w-full flex items-center gap-3 px-4.5 py-3.5 rounded-lg text-sm font-bold transition-all duration-200 cursor-pointer relative text-white/80 hover:text-white hover:bg-white/10;
+}
+
+.navButtonActive {
+  @apply w-full flex items-center gap-3 px-4.5 py-3.5 rounded-lg text-sm font-black transition-all duration-200 cursor-pointer relative bg-[#FAF5DB] text-[#806626] shadow-sm;
+}
+
+.userChipWrapper {
+  @apply px-4 pb-8 pt-5 border-t border-white/20 flex items-center justify-between gap-3 bg-transparent;
+}
+
+.avatar {
+  @apply h-9 w-9 rounded-full bg-gradient-to-tr from-brand-gold to-brand-gold-dark flex items-center justify-center text-white text-xs font-black flex-shrink-0 select-none uppercase shadow-md border border-white/10 ring-2 ring-brand-gold/20;
+}
+
+.userInfo {
+  @apply min-w-0;
+}
+
+.userName {
+  @apply text-xs font-black text-white/95 truncate tracking-tight;
+}
+
+.userRole {
+  @apply text-[10px] text-white/35 font-bold leading-tight mt-0.5 uppercase tracking-wider;
+}
+
+.logoutBtn {
+  @apply p-2 text-white/35 hover:text-rose-400 hover:bg-rose-500/10 rounded-xl transition-all duration-200 cursor-pointer shrink-0 border border-transparent hover:border-rose-500/10;
+}
+
+.loginLink {
+  @apply text-[10px] font-black text-brand-gold hover:text-brand-gold-dark transition-colors uppercase tracking-wider shrink-0;
+}
+
+/* Scrollable Content Container */
+.scrollableContent {
+  @apply flex-1 h-screen flex flex-col bg-gradient-to-br from-[#FCFAF7] via-[#F6F4ED] to-[#ECE9DF] relative overflow-hidden;
+}
+
+.globalToast {
+  @apply fixed bottom-8 right-8 z-50 flex items-center gap-2.5 rounded-2xl bg-[#1E1C18]/95 backdrop-blur-md px-5 py-4 text-sm font-semibold text-white shadow-2xl border border-brand-gold/20 animate-in fade-in slide-in-from-bottom-5 duration-300;
+}
+
+.headerBar {
+  @apply flex h-20 items-center justify-between px-8 border-b border-brand-dark/10 bg-[#fffbee]/85 backdrop-blur-md shrink-0 relative z-30;
+}
+
+.greetingText {
+  @apply text-[10px] text-[#1E1C18]/45 font-black uppercase tracking-wider;
+}
+
+.profileName {
+  @apply text-3xl font-black text-[#1E1C18] tracking-tight mt-0.5;
+}
+
+.avatarCircle {
+  @apply h-11 w-11 rounded-full bg-gradient-to-tr from-brand-gold to-brand-gold-dark flex items-center justify-center text-white font-black text-base shadow-md border border-white/20 transition-transform duration-300 hover:scale-105 cursor-pointer ring-2 ring-brand-gold/15;
+}
+
+.tabContentWrapper {
+  @apply px-8 pt-4 pb-12 flex-1 flex flex-col overflow-y-auto;
+}
+
+/* Home Tab Components */
+.homeGrid {
+  @apply grid grid-cols-1 sm:grid-cols-2 gap-6;
+}
+
+.heroCard {
+  @apply bg-gradient-to-br from-[#252119] via-[#1A1712] to-[#0D0B08] rounded-3xl p-8 flex flex-col justify-between min-h-[220px] relative overflow-hidden shadow-lg border border-[#1e1c18]/10;
+}
+
+.heroGlow {
+  @apply absolute top-0 right-0 w-32 h-32 bg-radial from-brand-gold/20 to-transparent rounded-bl-full pointer-events-none;
+}
+
+.heroBackground {
+  @apply absolute -bottom-10 -right-10 w-40 h-40 bg-radial from-white/5 to-transparent rounded-full pointer-events-none;
+}
+
+.heroLabel {
+  @apply text-brand-gold font-black uppercase tracking-widest text-[9px];
+}
+
+.heroTitle {
+  @apply text-white font-extrabold text-2xl leading-tight tracking-tight max-w-[240px];
+}
+
+.heroButton {
+  @apply self-start mt-6 inline-flex items-center gap-2 bg-gradient-to-r from-brand-gold to-brand-gold-dark hover:from-brand-gold-dark hover:to-brand-gold text-white font-black text-sm rounded-xl px-6 py-3.5 shadow-lg shadow-brand-gold/10 hover:shadow-brand-gold/30 active:translate-y-0 transition-all duration-200 cursor-pointer relative z-10;
+}
+
+.costEstimatorCard {
+  @apply bg-white/75 backdrop-blur-md rounded-3xl p-8 flex flex-col justify-between min-h-[220px] border border-white/60 shadow-[0_10px_30px_rgba(0,0,0,0.02)] hover:shadow-xl hover:shadow-[#1e1c18]/5 hover:border-brand-gold/25 transition-all duration-300 ease-out;
+}
+
+.costLabel {
+  @apply text-[#1E1C18]/40 text-[9px] font-black uppercase tracking-widest;
+}
+
+.costValue {
+  @apply text-[#1E1C18] font-black text-4xl mt-2 tracking-tight leading-none;
+}
+
+.costSubtext {
+  @apply text-[#1E1C18]/45 text-[10px] font-bold mt-1.5 uppercase tracking-wider;
+}
+
+.progressBarContainer {
+  @apply mt-6 space-y-2;
+}
+
+.progressBarTrack {
+  @apply h-2 w-full bg-[#1E1C18]/5 rounded-full overflow-hidden p-[1px];
+}
+
+.progressBarIndicator {
+  @apply h-full bg-gradient-to-r from-brand-gold/75 to-brand-gold rounded-full shadow-[0_0_8px_rgba(179,142,66,0.2)];
+}
+
+.progressLabelGroup {
+  @apply flex justify-between items-center text-[10px] text-[#1E1C18]/45 font-bold uppercase tracking-wider;
+}
+
+.adjustBtn {
+  @apply text-brand-gold font-extrabold hover:text-brand-gold-dark hover:underline cursor-pointer flex items-center gap-0.5 transition-colors;
+}
+
+.latestAuditCard {
+  @apply bg-white/75 backdrop-blur-md rounded-3xl p-8 border border-white/60 shadow-[0_10px_30px_rgba(0,0,0,0.02)] hover:shadow-xl hover:shadow-[#1e1c18]/5 hover:border-brand-gold/25 transition-all duration-300 ease-out flex flex-col justify-between min-h-[220px];
+}
+
+.auditLabel {
+  @apply text-[#1E1C18]/45 text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5;
+}
+
+.auditBadge {
+  @apply bg-amber-500/10 text-amber-700 border border-amber-500/20 text-[9px] font-black rounded-full px-3 py-1 uppercase tracking-widest;
+}
+
+.auditHeader {
+  @apply space-y-1.5;
+}
+
+.auditTitle {
+  @apply font-extrabold text-[#1E1C18] text-lg leading-snug tracking-tight;
+}
+
+.auditDescriptionWarning {
+  @apply text-[11px] text-[#1E1C18]/70 font-semibold leading-relaxed bg-rose-500/5 border border-rose-500/10 px-3 py-2 rounded-xl flex items-center gap-2;
+}
+
+.auditDescriptionNormal {
+  @apply text-[11px] text-[#1E1C18]/40 font-semibold leading-relaxed bg-brand-dark/5 px-3 py-2 rounded-xl flex items-center gap-2;
+}
+
+.viewAuditBtn {
+  @apply self-start text-xs text-brand-gold font-extrabold hover:text-brand-gold-dark hover:underline cursor-pointer flex items-center gap-1.5 transition-colors pt-1;
+}
+
+.supplierCard {
+  @apply bg-white/75 backdrop-blur-md rounded-3xl p-8 border border-white/60 shadow-[0_10px_30px_rgba(0,0,0,0.02)] hover:shadow-xl hover:shadow-[#1e1c18]/5 hover:border-brand-gold/25 transition-all duration-300 ease-out flex flex-col justify-between min-h-[220px];
+}
+
+.supplierLabel {
+  @apply text-[#1E1C18]/40 text-[9px] font-black uppercase tracking-widest;
+}
+
+.supplierTitle {
+  @apply font-extrabold text-[#1E1C18] text-lg tracking-tight;
+}
+
+.supplierDesc {
+  @apply text-sm text-[#1E1C18]/55 font-medium leading-relaxed;
+}
+
+.browseSuppliersBtn {
+  @apply self-start text-xs font-black text-brand-gold hover:text-brand-gold-dark hover:underline cursor-pointer flex items-center gap-1.5 transition-colors;
+}
+
+.milestonesCard {
+  @apply mt-6 bg-white/75 backdrop-blur-md rounded-3xl p-8 border border-white/60 shadow-[0_10px_30px_rgba(0,0,0,0.02)];
+}
+
+.milestonesHeader {
+  @apply text-sm font-black text-[#1E1C18] flex items-center gap-2 mb-6 uppercase tracking-wider;
+}
+
+.timelineTrack {
+  @apply relative pl-7 border-l border-brand-gold/15 space-y-6 ml-3;
+}
+
+.timelineNodeDone {
+  @apply absolute -left-9.5 top-0.5 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black border transition-all duration-300 bg-emerald-500 text-white border-emerald-600 shadow-md shadow-emerald-500/10;
+}
+
+.timelineNodeActive {
+  @apply absolute -left-9.5 top-0.5 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black border transition-all duration-300 bg-brand-gold text-white border-brand-gold-dark shadow-md shadow-brand-gold/20 animate-pulse ring-4 ring-brand-gold/15;
+}
+
+.timelineNodeInactive {
+  @apply absolute -left-9.5 top-0.5 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black border transition-all duration-300 bg-[#FCFAF7] text-[#1E1C18]/30 border-brand-dark/10;
+}
+
+.milestoneTitle {
+  @apply text-xs font-black tracking-tight text-[#1E1C18];
+}
+
+.milestoneTitleInactive {
+  @apply text-xs font-black tracking-tight text-[#1E1C18]/40;
+}
+
+.milestoneDesc {
+  @apply text-[11px] mt-1 font-medium leading-relaxed text-[#1E1C18]/60;
+}
+
+.milestoneDescInactive {
+  @apply text-[11px] mt-1 font-medium leading-relaxed text-[#1E1C18]/30;
+}
+
+/* Quotes Tab Components */
+.stepperWrapper {
+  @apply mb-8 max-w-3xl mx-auto;
+}
+
+.stepperContainer {
+  @apply flex items-center justify-between relative px-2;
+}
+
+.stepperTrack {
+  @apply absolute left-6 right-6 top-5 h-[3px] bg-[#1E1C18]/10 rounded-full -z-10;
+}
+
+.stepperProgressTrack {
+  @apply absolute left-6 top-5 h-[3px] bg-brand-gold rounded-full transition-all duration-700 ease-in-out -z-10;
+}
+
+.stepperNodeWrapper {
+  @apply flex flex-col items-center;
+}
+
+.stepperNodeActive {
+  @apply w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs transition-all duration-300 bg-brand-gold text-white shadow-lg shadow-brand-gold/30 ring-4 ring-brand-gold/20;
+}
+
+.stepperNodeDone {
+  @apply w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs transition-all duration-300 bg-brand-gold/20 text-brand-gold border-2 border-brand-gold/50;
+}
+
+.stepperNodeInactive {
+  @apply w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs transition-all duration-300 bg-white text-[#1E1C18] border-2 border-[#1E1C18]/10;
+}
+
+.stepperLabelActive {
+  @apply text-xs font-extrabold mt-3 tracking-wide transition-colors duration-300 text-brand-gold;
+}
+
+.stepperLabelInactive {
+  @apply text-xs font-extrabold mt-3 tracking-wide transition-colors duration-300 text-[#1E1C18]/50;
+}
+
+.quotesWrapper {
+  @apply max-w-2xl mx-auto animate-in fade-in duration-300;
+}
+
+.setupCard {
+  @apply bg-white rounded-3xl border border-black/5 shadow-lg p-8 lg:p-10 relative overflow-hidden flex flex-col gap-6;
+}
+
+.setupHeader {
+  @apply text-center max-w-md mx-auto;
+}
+
+.setupTitle {
+  @apply text-2xl font-black text-[#1E1C18] tracking-tight mb-2;
+}
+
+.setupDescription {
+  @apply text-xs text-[#1E1C18]/50 leading-relaxed;
+}
+
+.optionsGrid {
+  @apply grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2;
+}
+
+.optionButton {
+  @apply flex flex-col items-center justify-between p-6 rounded-2xl border-2 border-[#1E1C18]/5 hover:border-brand-gold/50 bg-[#FAF7F0]/40 hover:bg-[#FAF7F0] text-center cursor-pointer transition-all duration-300 shadow-sm hover:shadow-md;
+}
+
+.optionIcon {
+  @apply h-12 w-12 bg-brand-gold/10 rounded-xl flex items-center justify-center text-brand-gold group-hover:scale-105 group-hover:bg-brand-gold group-hover:text-white transition-all duration-300 mb-4 shadow-inner;
+}
+
+.optionTitle {
+  @apply text-sm font-black text-[#1E1C18] block tracking-tight group-hover:text-brand-gold transition-colors;
+}
+
+.optionDesc {
+  @apply text-[11px] text-[#1E1C18]/50 block mt-2 font-medium leading-relaxed;
+}
+
+.optionBadge {
+  @apply text-[9px] font-black tracking-wider uppercase text-brand-gold bg-brand-gold/10 border border-brand-gold/20 rounded-full px-2.5 py-1 mt-4;
+}
+
+.optionBadgeSecondary {
+  @apply text-[9px] font-black tracking-wider uppercase text-[#1E1C18]/45 bg-[#1E1C18]/5 border border-[#1E1C18]/10 rounded-full px-2.5 py-1 mt-4;
+}
+
+.pdfZoneCard {
+  @apply bg-white rounded-3xl border border-black/5 shadow-lg p-8 lg:p-10 relative overflow-hidden flex flex-col gap-6;
+}
+
+.backToOptions {
+  @apply inline-flex items-center gap-1.5 text-[11px] font-black text-brand-gold hover:underline cursor-pointer uppercase tracking-wider;
+}
+
+.pdfLabel {
+  @apply text-[10px] font-black text-brand-gold bg-brand-gold/10 border border-brand-gold/20 rounded-full px-2.5 py-1 uppercase tracking-wider;
+}
+
+.pdfTitle {
+  @apply text-2xl font-black text-[#1E1C18] tracking-tight mb-2;
+}
+
+.pdfDesc {
+  @apply text-xs text-[#1E1C18]/50 leading-relaxed;
+}
+
+.dropzoneLabel {
+  @apply flex flex-col items-center justify-center border-2 border-dashed border-brand-gold/30 hover:border-brand-gold bg-[#FAF7F0]/60 hover:bg-[#FAF7F0] rounded-2xl p-8 sm:p-10 text-center cursor-pointer transition-all duration-300 shadow-inner;
+}
+
+.dropzoneIcon {
+  @apply h-16 w-16 bg-brand-gold/10 rounded-2xl flex items-center justify-center text-brand-gold group-hover:scale-105 group-hover:bg-brand-gold group-hover:text-white transition-all duration-300 mb-4 shadow-sm;
+}
+
+.dropzoneTitle {
+  @apply text-sm font-black text-[#1E1C18] block tracking-tight group-hover:text-brand-gold transition-colors;
+}
+
+.dropzoneSubtext {
+  @apply text-xs text-[#1E1C18]/45 block mt-1;
+}
+
+.pdfBadgeOnly {
+  @apply text-[10px] font-extrabold px-4 py-1.5 rounded-full bg-brand-gold text-white shadow-md border border-brand-gold/20;
+}
+
+.securityLog {
+  @apply flex flex-wrap items-center justify-center gap-4 text-[10px] font-extrabold text-[#1E1C18]/40 py-2 border-y border-[#1E1C18]/5;
+}
+
+.focusInstructionsHeader {
+  @apply text-xs font-black text-[#1E1C18] uppercase tracking-wider mb-2.5 flex items-center gap-1.5;
+}
+
+.focusInstructionsTextarea {
+  @apply w-full text-xs bg-[#FAF7F0] border border-[#1E1C18]/10 rounded-xl px-4 py-3 text-[#1E1C18] placeholder:text-[#1E1C18]/30 focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all shadow-inner;
+}
+
+.scanButton {
+  @apply w-full bg-brand-gold hover:bg-brand-gold-dark text-white rounded-xl py-3.5 px-6 font-extrabold flex items-center justify-center gap-2 shadow-lg hover:shadow-brand-gold/20 transition-all cursor-pointer;
+}
+
+.manualQuoteFormCard {
+  @apply bg-white rounded-3xl border border-black/5 shadow-lg p-8 lg:p-10 relative overflow-hidden flex flex-col gap-6;
+}
+
+.formLabel {
+  @apply block text-[10px] font-black text-[#1E1C18]/55 uppercase tracking-wider mb-2;
+}
+
+.formInput {
+  @apply w-full text-xs bg-[#FAF7F0] border border-[#1E1C18]/10 rounded-xl px-4 py-3 text-[#1E1C18] placeholder:text-[#1E1C18]/30 focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all shadow-inner;
+}
+
+.formInputRow {
+  @apply grid grid-cols-1 sm:grid-cols-2 gap-4;
+}
+
+.formSubmitButton {
+  @apply w-full bg-brand-gold hover:bg-brand-gold-dark text-white rounded-xl py-3.5 px-6 font-extrabold flex items-center justify-center gap-2 shadow-lg hover:shadow-brand-gold/20 transition-all cursor-pointer mt-4;
+}
+
+/* Spreadsheet Editor Views */
+.editorContainer {
+  @apply space-y-6 animate-in fade-in duration-300;
+}
+
+.editorHeader {
+  @apply bg-white rounded-3xl border border-black/5 shadow-sm p-6 flex flex-wrap items-center justify-between gap-6;
+}
+
+.editorTitle {
+  @apply text-xl font-black text-[#1E1C18] tracking-tight;
+}
+
+.editorMetaGrid {
+  @apply flex flex-wrap gap-x-8 gap-y-3;
+}
+
+.editorMetaItem {
+  @apply flex flex-col;
+}
+
+.editorLabel {
+  @apply text-[9px] font-black text-[#1E1C18]/45 uppercase tracking-wider;
+}
+
+.editorValue {
+  @apply text-xs font-extrabold text-[#1E1C18] mt-0.5;
+}
+
+.editorTabs {
+  @apply bg-[#F5F2EB] p-1 rounded-full flex border border-black/5 shadow-inner self-stretch sm:self-auto;
+}
+
+.editorTabButtonActive {
+  @apply px-5 py-2 text-xs font-black rounded-full bg-brand-gold text-white shadow-md transform scale-101 transition-all duration-300;
+}
+
+.editorTabButtonInactive {
+  @apply px-5 py-2 text-xs font-bold rounded-full text-[#1E1C18]/75 hover:text-[#1E1C18] transition-colors duration-200;
+}
+
+.editorGrid {
+  @apply grid grid-cols-1 lg:grid-cols-12 gap-6 items-start;
+}
+
+.editorLeftPane {
+  @apply lg:col-span-8 space-y-6;
+}
+
+.editorRightPane {
+  @apply lg:col-span-4 space-y-6;
+}
+
+.spatialLayoutTitle {
+  @apply text-sm font-black text-[#1E1C18] uppercase tracking-wider mb-3 flex items-center justify-between;
+}
+
+.canvasFrame {
+  @apply bg-white border border-black/5 rounded-3xl p-5 shadow-sm relative overflow-hidden;
+}
+
+.spreadsheetTableFrame {
+  @apply bg-white border border-black/5 rounded-3xl p-5 shadow-sm overflow-x-auto;
+}
+
+.table {
+  @apply w-full border-collapse text-left text-xs;
+}
+
+.thead {
+  @apply border-b border-[#1E1C18]/10;
+}
+
+.tbody {
+  @apply divide-y divide-[#1E1C18]/5;
+}
+
+.tr {
+  @apply transition-colors hover:bg-[#FAF7F0]/40;
+}
+
+.th {
+  @apply py-3 px-3 font-black text-[#1E1C18]/50 uppercase text-[10px] tracking-wider;
+}
+
+.td {
+  @apply py-3.5 px-3 font-semibold text-[#1E1C18]/85;
+}
+
+.tdInput {
+  @apply w-full bg-transparent border-0 border-b border-transparent focus:border-brand-gold focus:ring-0 p-0 text-xs font-bold text-[#1E1C18] focus:outline-none transition-colors;
+}
+
+.boqList {
+  @apply bg-white border border-black/5 rounded-3xl p-5 shadow-sm space-y-3.5;
+}
+
+.boqItem {
+  @apply border border-[#1E1C18]/10 rounded-2xl overflow-hidden transition-all duration-200 hover:border-brand-gold/30 hover:shadow-sm;
+}
+
+.boqItemHeader {
+  @apply bg-[#FAF7F0]/30 px-4 py-3 flex items-center justify-between cursor-pointer select-none transition-colors hover:bg-[#FAF7F0]/60;
+}
+
+.boqItemContent {
+  @apply px-4.5 py-4 bg-white border-t border-[#1E1C18]/5 space-y-3 text-xs;
+}
+
+.boqLabel {
+  @apply font-black text-[#1E1C18]/45 uppercase text-[9px] tracking-wider block;
+}
+
+.boqText {
+  @apply font-semibold text-[#1E1C18] mt-0.5;
+}
+
+.boqDangerAlert {
+  @apply flex items-start gap-2 bg-rose-500/5 border border-rose-500/10 p-3 rounded-xl text-rose-800 text-[11px] font-semibold;
+}
+
+.boqWarningAlert {
+  @apply flex items-start gap-2 bg-amber-500/5 border border-amber-500/10 p-3 rounded-xl text-amber-800 text-[11px] font-semibold;
+}
+
+.boqSuccessAlert {
+  @apply flex items-start gap-2 bg-emerald-500/5 border border-emerald-500/10 p-3 rounded-xl text-emerald-800 text-[11px] font-semibold;
+}
+
+/* History Tab */
+.historyCard {
+  @apply bg-white border border-black/5 rounded-3xl p-6 shadow-sm overflow-hidden;
+}
+
+.historyTableFrame {
+  @apply overflow-x-auto;
+}
+
+.actionCell {
+  @apply flex items-center gap-2;
+}
+
+.noHistoryState {
+  @apply text-center py-12 space-y-4 max-w-sm mx-auto;
+}
+
+/* Suppliers Tab */
+.suppliersGrid {
+  @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6;
+}
+
+.supplierCardHeader {
+  @apply flex items-start justify-between gap-4;
+}
+
+.supplierMaterialBadge {
+  @apply bg-brand-gold/10 text-brand-gold border border-brand-gold/20 text-[9px] font-black rounded-full px-2.5 py-1 uppercase tracking-wider mt-1.5 inline-block;
+}
+
+.supplierClickBtn {
+  @apply w-full bg-[#FAF7F0] hover:bg-brand-gold hover:text-white border border-[#1E1C18]/5 rounded-xl py-2.5 px-4 text-xs font-black text-brand-gold flex items-center justify-center gap-1.5 transition-all duration-200 cursor-pointer shadow-sm hover:shadow;
+}
+
+/* Chat Tab */
+.chatLayout {
+  @apply flex flex-col h-[calc(100vh-140px)] bg-white border border-black/5 rounded-3xl shadow-sm overflow-hidden;
+}
+
+.chatMessagesContainer {
+  @apply flex-1 overflow-y-auto p-6 space-y-4 bg-gradient-to-b from-white to-[#FAF7F0]/20;
+}
+
+.chatBubbleUser {
+  @apply flex items-end gap-2.5 justify-end;
+}
+
+.chatBubbleAssistant {
+  @apply flex items-end gap-2.5 justify-start;
+}
+
+.chatInputContainer {
+  @apply p-4 border-t border-black/5 bg-[#FAF7F0]/30 flex items-center gap-3;
+}
+
+.chatSendBtn {
+  @apply p-3 bg-brand-gold hover:bg-brand-gold-dark text-white rounded-xl shadow-md hover:shadow-lg hover:scale-102 active:scale-100 transition-all cursor-pointer;
+}
+
+/* Homeowner Redesign Custom Classes */
+.headerTitleGold {
+  @apply text-[#A68A3D] text-2xl font-black italic tracking-wide transition-colors;
+}
+
+.headerIcon {
+  @apply h-5 w-5 text-[#A68A3D] hover:scale-105 transition-transform;
+}
+
+.headerIconContainer {
+  @apply flex items-center gap-4;
+}
+
+.iconWrapper {
+  @apply h-8 w-8 rounded-full bg-[#FAF7F0] border border-[#1E1C18]/5 flex items-center justify-center relative cursor-pointer hover:bg-brand-cream-dark transition-all shadow-sm;
+}
+
+.redBadge {
+  @apply absolute -top-1 -right-1 h-3.5 w-3.5 bg-rose-600 rounded-full flex items-center justify-center text-[8px] font-black text-white border border-white;
+}
+
+.angkorBanner {
+  @apply relative -mx-8 -mt-4 -mb-12 flex-1 overflow-hidden flex flex-col justify-center px-8 sm:px-12 select-none bg-cover bg-center shrink-0;
+}
+
+.bannerOverlay1 {
+  @apply absolute inset-0 bg-gradient-to-r from-[#201b12]/95 via-[#201b12]/75 to-transparent z-0;
+}
+
+.bannerOverlay2 {
+  @apply absolute inset-0 bg-[#201b12]/20 backdrop-brightness-[0.9] z-0;
+}
+
+.angkorBannerContent {
+  @apply relative z-10 max-w-xl space-y-5 flex flex-col items-start pl-8 sm:pl-12 md:pl-16;
+}
+
+.welcomeText {
+  @apply text-white text-5xl sm:text-6xl md:text-6xl font-extrabold leading-tight tracking-tight relative z-10;
+}
+
+.welcomeName {
+  @apply text-brand-gold italic font-semibold text-5xl sm:text-6xl md:text-6xl block mt-1 select-text relative z-10;
+}
+
+.welcomeActions {
+  @apply flex items-center gap-6 mt-4 flex-wrap relative z-10;
+}
+
+.uploadQuoteBtn {
+  @apply inline-flex items-center justify-center rounded-full border-2 border-brand-gold px-8 py-3.5 text-sm font-bold text-white bg-brand-gold/15 hover:bg-brand-gold hover:text-white transition-all duration-300 hover:shadow-lg hover:shadow-brand-gold/20 cursor-pointer relative z-10;
+}
+
+.exploreLink {
+  @apply inline-flex items-center gap-1.5 text-sm font-semibold text-white hover:text-brand-gold transition-all duration-200 cursor-pointer relative z-10;
+}
+
+/* State B (Dashboard with Projects) */
+.dashboardGreetingSection {
+  @apply mb-8;
+}
+
+.welcomeBackText {
+  @apply text-xs font-semibold text-[#1E1C18]/45 italic block;
+}
+
+.goodMorningTitle {
+  @apply text-[#A68A3D] text-3xl font-black tracking-tight mt-1;
+}
+
+.dashboardFlexGrid {
+  @apply grid grid-cols-1 md:grid-cols-2 gap-8;
+}
+
+.beigeCard {
+  @apply bg-[#F8EED1] rounded-3xl p-6 sm:p-8 border border-[#ebdfc0] shadow-md flex flex-col min-h-[300px] transition-all duration-300 hover:shadow-lg;
+}
+
+.beigeCardTitle {
+  @apply text-[#806626] font-black text-xl tracking-tight mb-4 border-b border-[#ebdfc0] pb-2 uppercase text-[15px];
+}
+
+/* Material Benchmarks Inside Card */
+.materialList {
+  @apply space-y-3 flex-1 overflow-y-auto pr-1;
+}
+
+.materialItem {
+  @apply flex items-center justify-between border-b border-[#ebdcb3]/60 py-2 last:border-0;
+}
+
+.materialInfo {
+  @apply flex flex-col;
+}
+
+.materialName {
+  @apply text-xs font-bold text-[#806626];
+}
+
+.materialSource {
+  @apply text-[10px] text-[#806626]/60 font-semibold;
+}
+
+.materialPrice {
+  @apply text-xs font-black text-[#806626] bg-[#FAF5DB] border border-[#e5d4a6] px-2.5 py-1 rounded-lg shadow-sm;
+}
+
+/* Projects List Inside Card */
+.projectList {
+  @apply space-y-3.5 flex-1 overflow-y-auto pr-1;
+}
+
+.projectListItem {
+  @apply bg-[#FAF5DB] border border-[#e5d4a6] p-4.5 rounded-2xl flex flex-col justify-between hover:shadow-md transition-shadow;
+}
+
+.projectListHeader {
+  @apply flex justify-between items-start;
+}
+
+.projectListTitle {
+  @apply text-sm font-extrabold text-[#806626] tracking-tight;
+}
+
+.projectListContractor {
+  @apply text-[10px] text-[#806626]/60 font-semibold mt-0.5;
+}
+
+.projectListPrice {
+  @apply text-sm font-black text-[#806626] mt-2;
+}
+
+.projectListBtn {
+  @apply mt-3 w-full bg-[#806626] hover:bg-[#6c551e] text-white text-[11px] font-black py-2 rounded-xl transition-colors cursor-pointer text-center block shadow-sm;
+}

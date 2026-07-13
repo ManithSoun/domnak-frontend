@@ -109,9 +109,11 @@ export default function ChatUI({
                       {c.time || ""}
                     </span>
                   </div>
-                  <p className="text-[10px] text-brand-dark/45 font-medium truncate mt-0.5">
-                    {c.lastMsg || "No messages yet"}
-                  </p>
+                  {c.lastMsg && (
+                    <p className="text-[10px] text-brand-dark/45 font-medium truncate mt-0.5">
+                      {c.lastMsg}
+                    </p>
+                  )}
                 </div>
               </button>
             );

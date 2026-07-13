@@ -4,7 +4,19 @@ import Link from "next/link";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import ChatUI from "@/components/ChatUI";
+import CostHelperChatbot from "@/components/chatbot/CostHelperChatbot";
+import ManualQuoteForm from "@/components/homeowners/ManualQuoteForm";
 import { useAuth } from "../../../router/useAuth";
+import { 
+  getQuotes, 
+  createQuote, 
+  deleteQuote, 
+  updateQuote,
+  getSuppliers, 
+  uploadPdf,
+  getAnalysisResults
+} from "@/lib/api/index";
+import styles from "./Homeowners.module.css";
 import {
   UploadCloud,
   FileText,
@@ -33,6 +45,8 @@ import {
   LayoutDashboard,
   History,
   User,
+  Bell,
+  Bot,
   Clock,
   Settings,
   Share2,
@@ -45,7 +59,8 @@ import {
   Briefcase,
   Store,
   Calculator,
-  LogOut
+  LogOut,
+  Menu
 } from "lucide-react";
 
 // Preset configurations for simulated AI extraction
@@ -112,14 +127,33 @@ const CATEGORIES = [
 
 const FLOORS = ["Ground Floor", "1st Floor", "2nd Floor", "3rd Floor"];
 
+const FALLBACK_SUPPLIERS = [
+  { name: "Camel Cement Cambodia",    category: "Cement & Concrete",    badge: "⭐ Top Rated", location: "Phnom Penh" },
+  { name: "Siam Cement Group",        category: "Structural Materials", badge: "🏆 Premium",   location: "Kandal Province" },
+  { name: "Heng Hardware Co.",        category: "Steel & Rebars",       badge: "✅ Verified",  location: "Toul Kork" },
+  { name: "Angkor Tiles & Ceramics",  category: "Flooring & Tiles",     badge: "✅ Verified",  location: "Chamkar Mon" },
+  { name: "PPM Electrical Supply",    category: "Electrical Works",     badge: "⭐ Top Rated", location: "Sen Sok" },
+  { name: "PhnomPenh Lumber Co.",     category: "Timber & Doors",       badge: "✅ Verified",  location: "Russei Keo" },
+];
+
 export default function HomeownersPage() {
   const { user, logout } = useAuth();
 
+  const capitalizeName = (name) => {
+    if (!name) return "";
+    return name
+      .split(" ")
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+  };
+
   // Sidebar Tab State
-  const [sidebarTab, setSidebarTab] = useState("home"); // "home" | "quotes" | "history" | "suppliers" | "chat"
+  const [sidebarTab, setSidebarTab] = useState("home"); // "home" | "quotes" | "history" | "suppliers" | "chat" | "chatbot"
+  const [dashboardSidebarOpen, setDashboardSidebarOpen] = useState(false);
 
   // Stored Audit History & Profile details
   const [auditHistory, setAuditHistory] = useState([]);
+  const [suppliersList, setSuppliersList] = useState(FALLBACK_SUPPLIERS);
   const [profileLocation, setProfileLocation] = useState("Phnom Penh, Cambodia");
   const [profileBudget, setProfileBudget] = useState(150000);
   const [profileStartDate, setProfileStartDate] = useState("Q3 2026");
@@ -127,11 +161,7 @@ export default function HomeownersPage() {
   const [selectedSavedAuditId, setSelectedSavedAuditId] = useState(null);
 
   // Architect Chat History
-  const [architectChat, setArchitectChat] = useState([
-    { sender: "architect", text: "Hello! I reviewed your latest budget audit for the villa. We might want to optimize the master bathroom fixtures to stay under the $150k target.", time: "10:30 AM" },
-    { sender: "user", text: "Hi! Yes, I agree. Can we look at standard grade tiles for the kids bedroom as well?", time: "10:45 AM" },
-    { sender: "architect", text: "Absolutely, that can trim about $2,500. I have updated the shared 3D plans to reflect standard layout configurations.", time: "11:00 AM" }
-  ]);
+  const [architectChat, setArchitectChat] = useState([]);
   const [architectInput, setArchitectInput] = useState("");
 
   // Core Navigation State
@@ -139,6 +169,7 @@ export default function HomeownersPage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisStep, setAnalysisStep] = useState(0);
   const [showResults, setShowResults] = useState(false);
+  const [aiAnalysisResults, setAiAnalysisResults] = useState([]);
   const [activeTab, setActiveTab] = useState("spreadsheet"); // "spreadsheet" | "boq" | "chat"
   
   // Selection / Manual Input States
@@ -155,10 +186,54 @@ export default function HomeownersPage() {
   const [qualityTier, setQualityTier] = useState("premium");
   const [rooms, setRooms] = useState([]);
   
+  const isAiParsed = rooms.some(r => r.unit_price !== undefined || r.unit !== undefined);
+  const totalAuditedVal = auditHistory.reduce((acc, a) => acc + (a.quotedPrice || 0), 0);
+  const averageQuotePrice = auditHistory.length > 0 ? Math.round(totalAuditedVal / auditHistory.length) : 0;
+  const totalAuditsRun = auditHistory.length;
+  const maxQuoteVal = auditHistory.reduce((acc, a) => Math.max(acc, a.quotedPrice || 0), 1);
+
+  // Sync quotedPrice with AI parsed rooms total
+  useEffect(() => {
+    if (isAiParsed && rooms.length > 0) {
+      const sum = rooms.reduce((acc, r) => acc + (parseFloat(r.total_price) || 0), 0);
+      if (sum > 0) {
+        setQuotedPrice(sum);
+      }
+    }
+  }, [rooms, isAiParsed]);
+  
   // UI Interaction States
   const [hoveredRoomId, setHoveredRoomId] = useState(null);
   const [selectedFloor, setSelectedFloor] = useState("Ground Floor");
   const [customNotification, setCustomNotification] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState([
+    {
+      id: 1,
+      title: "New Architect Message",
+      message: "Architect Sopheap Meas sent you a message about the excavation cost adjustment.",
+      time: "5 mins ago",
+      unread: true,
+      category: "message"
+    },
+    {
+      id: 2,
+      title: "Audit Success",
+      message: "AI Audit compiled successfully for Constructor_Quote.pdf with 9 verified items.",
+      time: "2 hours ago",
+      unread: false,
+      category: "audit"
+    },
+    {
+      id: 3,
+      title: "Regional Price Alert",
+      message: "Steel rebar wholesale rates in Toul Kork decreased by 1.5% this week.",
+      time: "1 day ago",
+      unread: false,
+      category: "price"
+    }
+  ]);
 
   // BoQ Item Explanation Accordion State
   const [expandedBoqItem, setExpandedBoqItem] = useState(null);
@@ -168,18 +243,14 @@ export default function HomeownersPage() {
   const [chatInput, setChatInput] = useState("");
   const [isChatTyping, setIsChatTyping] = useState(false);
   const chatBottomRef = useRef(null);
+  const activeQuoteIdRef = useRef(null);
 
-  // Initialize localStorage data on mount
+  // Initialize localStorage data and fetch from backend on mount
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const storedHistory = localStorage.getItem("domnak_audit_history");
-      if (storedHistory) {
-        try {
-          setAuditHistory(JSON.parse(storedHistory));
-        } catch (e) {
-          console.error("Failed to parse stored audit history", e);
-        }
-      }
+      // Clear old cached mock history to start with a clean slate
+      localStorage.removeItem("domnak_audit_history");
+      setAuditHistory([]);
       
       const storedLocation = localStorage.getItem("domnak_profile_location");
       const storedBudget = localStorage.getItem("domnak_profile_budget");
@@ -191,6 +262,58 @@ export default function HomeownersPage() {
       if (storedStartDate) setProfileStartDate(storedStartDate);
       if (storedPropType) setProfilePropertyType(storedPropType);
     }
+  }, []);
+
+  // Initialize AI Chatbot Messages if empty
+  useEffect(() => {
+    if (chatMessages.length === 0) {
+      setChatMessages([
+        {
+          sender: "ai",
+          text: "Hello! I'm DomNak AI, your personal construction cost assistant. Ask me anything about building costs, contractor quotes, or how to generate a Bill of Quantities (BOQ) in Cambodia."
+        }
+      ]);
+    }
+  }, [chatMessages]);
+
+  // Load quotes from backend
+  useEffect(() => {
+    if (user) {
+      getQuotes()
+        .then((response) => {
+          if (response && response.data) {
+            const mappedHistory = response.data.map(q => ({
+              id: q.id,
+              date: new Date(q.created_at || Date.now()).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+              projectName: q.project_name || "Project Estimate",
+              contractorName: q.contractor_name || "Contractor Name",
+              quotedPrice: q.total_amount || 0,
+              qualityTier: q.quality_tier || "premium",
+              rooms: q.rooms || []
+            }));
+            setAuditHistory(mappedHistory);
+            localStorage.setItem("domnak_audit_history", JSON.stringify(mappedHistory));
+          }
+        })
+        .catch((err) => console.log("Offline or local history mode only:", err));
+    }
+  }, [user]);
+
+  // Load suppliers from backend
+  useEffect(() => {
+    getSuppliers()
+      .then((res) => {
+        if (res && res.data && res.data.length > 0) {
+          const mapped = res.data.map(s => ({
+            name: s.name,
+            category: s.category || "Building Materials",
+            badge: s.rating >= 4.5 ? "⭐ Top Rated" : "✅ Verified",
+            location: s.address || "Phnom Penh"
+          }));
+          setSuppliersList(mapped);
+        }
+      })
+      .catch((err) => console.log("Using static supplier list fallback:", err));
   }, []);
 
   // Save/Update Audit to History list
@@ -212,6 +335,13 @@ export default function HomeownersPage() {
     const newHistory = auditHistory.filter((item) => item.id !== id);
     setAuditHistory(newHistory);
     localStorage.setItem("domnak_audit_history", JSON.stringify(newHistory));
+    
+    // Call backend delete if it is a saved quote ID
+    if (user && !id.toString().startsWith("audit_")) {
+      deleteQuote(id)
+        .catch((err) => console.error("Failed to delete quote from backend:", err));
+    }
+
     if (selectedSavedAuditId === id) {
       setSelectedSavedAuditId(null);
       setShowResults(false);
@@ -232,6 +362,24 @@ export default function HomeownersPage() {
     setRooms(JSON.parse(JSON.stringify(audit.rooms)));
     setSelectedSavedAuditId(audit.id);
     
+    // Fetch AI analysis results from backend if it is a saved quote from DB
+    if (audit.id && !audit.id.toString().startsWith("audit_")) {
+      getAnalysisResults(audit.id)
+        .then((analysisRes) => {
+          if (analysisRes && analysisRes.data) {
+            setAiAnalysisResults(analysisRes.data);
+          } else {
+            setAiAnalysisResults([]);
+          }
+        })
+        .catch((e) => {
+          console.error("Failed to fetch analysis:", e);
+          setAiAnalysisResults([]);
+        });
+    } else {
+      setAiAnalysisResults([]);
+    }
+    
     const floorsInPreset = [...new Set(audit.rooms.map(r => r.floor))];
     if (floorsInPreset.length > 0) {
       setSelectedFloor(floorsInPreset[0]);
@@ -239,7 +387,7 @@ export default function HomeownersPage() {
     
     setShowResults(true);
     setIsAnalyzing(false);
-    setDashboardTab("auditor");
+    setSidebarTab("quotes");
     setActiveTab("spreadsheet");
     showToast(`Loaded Audit: ${audit.projectName}`);
   };
@@ -287,9 +435,188 @@ export default function HomeownersPage() {
     }, 1500);
   };
 
-  const handleFileUpload = (e) => {
+  const handleFileUpload = async (e) => {
     e.preventDefault();
-    startAnalysis("villa");
+    const fileInput = document.getElementById("quote-file-input");
+    const file = fileInput?.files?.[0];
+    if (!file) {
+      startAnalysis("villa");
+      return;
+    }
+    
+    setIsAnalyzing(true);
+    setAnalysisStep(0);
+    setShowResults(false);
+    setSidebarTab("quotes");
+
+    // Initialize temporary scan quote immediately
+    const tempAuditId = `audit_${Date.now()}`;
+    setSelectedSavedAuditId(tempAuditId);
+    activeQuoteIdRef.current = tempAuditId;
+    
+    const tempAudit = {
+      id: tempAuditId,
+      date: new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+      projectName: file.name || "AI Quote Scanner",
+      contractorName: "Analyzing...",
+      quotedPrice: 0,
+      qualityTier: "standard",
+      rooms: []
+    };
+
+    if (user) {
+      createQuote({
+        contractorName: "Analyzing...",
+        totalAmount: 1.0,
+        projectName: file.name || "AI Quote Scanner",
+        qualityTier: "standard",
+        rooms: []
+      })
+        .then((res) => {
+          if (res && res.data) {
+            tempAudit.id = res.data.id;
+            activeQuoteIdRef.current = res.data.id;
+            setSelectedSavedAuditId(res.data.id);
+            saveAuditToHistory(tempAudit);
+          }
+        })
+        .catch((err) => {
+          console.error("Failed to save temp start quote to database:", err);
+          saveAuditToHistory(tempAudit);
+        });
+    } else {
+      saveAuditToHistory(tempAudit);
+    }
+    
+    try {
+      showToast("Uploading PDF quote to AI parser...");
+      const res = await uploadPdf(file);
+      showToast("PDF parsed successfully by AI!");
+      
+      const pName = file.name.replace(".pdf", "");
+      const cName = file.name.split(".")[0] || "Contractor";
+      
+      setProjectName(pName);
+      setContractorName(cName);
+      
+      let mappedRooms = [];
+      let totalSum = 0;
+      if (res && res.line_items) {
+        mappedRooms = res.line_items.map((item, index) => {
+          const qty = parseFloat(item.quantity) || 0;
+          const up = parseFloat(item.unit_price) || 0;
+          const tp = parseFloat(item.total_price) || (qty * up) || 0;
+          totalSum += tp;
+          return {
+            id: `item_${index}`,
+            name: item.material_name || "Unknown Material",
+            category: "utility",
+            floor: "Ground Floor",
+            width: 1,
+            length: qty || 1,
+            notes: `Benchmark Unit Price: $${up || 0}`,
+            material_name: item.material_name,
+            quantity: qty,
+            unit: item.unit || "unit",
+            unit_price: up,
+            total_price: tp
+          };
+        });
+      }
+      
+      if (mappedRooms.length === 0) {
+        setIsAnalyzing(false);
+        showToast("AI failed to extract details. Is this a scanned image PDF?");
+        alert("AI Scan completed, but no line items could be extracted. Please make sure the PDF has selectable text (not a scanned photo/image) and try again, or enter details manually.");
+        return;
+      }
+      
+      const finalPrice = totalSum > 0 ? totalSum : 1.0;
+      setQuotedPrice(finalPrice);
+      setRooms(mappedRooms);
+      setActivePreset(null);
+      
+      // Auto-save/update in database
+      const quoteId = activeQuoteIdRef.current;
+      const isExistingDbId = quoteId && !quoteId.toString().startsWith("audit_");
+      
+      const finalAudit = {
+        id: quoteId,
+        date: new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+        projectName: pName,
+        contractorName: cName,
+        quotedPrice: finalPrice,
+        qualityTier: "premium",
+        rooms: mappedRooms
+      };
+
+      if (user) {
+        if (isExistingDbId) {
+          updateQuote(quoteId, {
+            contractorName: cName,
+            totalAmount: finalPrice,
+            projectName: pName,
+            qualityTier: "premium",
+            rooms: mappedRooms
+          })
+            .then(() => {
+              saveAuditToHistory(finalAudit);
+            })
+            .catch((err) => {
+              console.error("Failed to update scanned quote on database:", err);
+              saveAuditToHistory(finalAudit);
+            });
+        } else {
+          createQuote({
+            contractorName: cName,
+            totalAmount: finalPrice,
+            projectName: pName,
+            qualityTier: "premium",
+            rooms: mappedRooms
+          })
+            .then((apiRes) => {
+              if (apiRes && apiRes.data) {
+                finalAudit.id = apiRes.data.id;
+                activeQuoteIdRef.current = apiRes.data.id;
+                setSelectedSavedAuditId(apiRes.data.id);
+                saveAuditToHistory(finalAudit);
+                // Fetch AI analysis results after backend finishes Groq analysis
+                setTimeout(() => {
+                  getAnalysisResults(apiRes.data.id)
+                    .then((analysisRes) => {
+                      if (analysisRes && analysisRes.data) {
+                        setAiAnalysisResults(analysisRes.data);
+                      }
+                    })
+                    .catch((e) => console.error("Failed to fetch analysis:", e));
+                }, 4000);
+              }
+            })
+            .catch((err) => {
+              console.error("Failed to save final quote to database:", err);
+              saveAuditToHistory(finalAudit);
+            });
+        }
+      } else {
+        saveAuditToHistory(finalAudit);
+      }
+      
+      setIsAnalyzing(false);
+      setShowResults(true);
+      setActiveTab("spreadsheet");
+      
+    } catch (err) {
+      console.log("PDF parser failed or Groq key missing. Falling back to local simulated scanner:", err);
+      showToast("Using offline recognition fallback...");
+      
+      // Clean up the temporary "Analyzing..." quote from the database
+      const tempId = activeQuoteIdRef.current;
+      if (tempId && !tempId.toString().startsWith("audit_")) {
+        deleteQuote(tempId).catch((e) => console.error("Failed to delete temp quote:", e));
+      }
+      
+      startAnalysis("villa");
+    }
   };
 
   const startAnalysis = (presetKey) => {
@@ -297,28 +624,60 @@ export default function HomeownersPage() {
     setIsAnalyzing(true);
     setAnalysisStep(0);
     setShowResults(false);
-    setSidebarTab("quotes");  // navigate to Quotes tab during analysis
+    setSidebarTab("quotes");
+
+    // Immediately save to database
+    const data = PRESETS[presetKey];
+    const auditId = `audit_${Date.now()}`;
+    setSelectedSavedAuditId(auditId);
+    activeQuoteIdRef.current = auditId;
+    
+    const newAudit = {
+      id: auditId,
+      date: new Date().toLocaleDateString("en-US", { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      projectName: data.projectName,
+      contractorName: data.contractorName,
+      quotedPrice: data.quotedPrice,
+      qualityTier: data.qualityTier,
+      rooms: JSON.parse(JSON.stringify(data.rooms))
+    };
+
+    if (user) {
+      createQuote({
+        contractorName: data.contractorName,
+        totalAmount: data.quotedPrice,
+        projectName: data.projectName,
+        qualityTier: data.qualityTier,
+        rooms: data.rooms
+      })
+        .then((res) => {
+          if (res && res.data) {
+            newAudit.id = res.data.id;
+            activeQuoteIdRef.current = res.data.id;
+            setSelectedSavedAuditId(res.data.id);
+            saveAuditToHistory(newAudit);
+          }
+        })
+        .catch((err) => {
+          console.error("Failed to save start simulated quote to backend:", err);
+          saveAuditToHistory(newAudit);
+        });
+    } else {
+      saveAuditToHistory(newAudit);
+    }
   };
 
-  const handleCreateManualQuote = () => {
-    // Determine preset key based on tier
-    let presetKey = "condo";
-    if (manualQualityTier === "premium") presetKey = "villa";
-    if (manualQualityTier === "luxury") presetKey = "penthouse";
-
-    const data = PRESETS[presetKey];
-    const initializedRooms = JSON.parse(JSON.stringify(data.rooms));
-
+  const handleCreateManualQuote = (payload) => {
     // Initialize layout states
-    setProjectName(manualProjectName);
-    setContractorName(manualContractorName);
-    setQuotedPrice(parseFloat(manualQuotedPrice) || 0);
-    setQualityTier(manualQualityTier);
-    setRooms(initializedRooms);
-    setActivePreset(presetKey);
+    setProjectName(payload.projectName);
+    setContractorName(payload.contractorName);
+    setQuotedPrice(payload.quotedPrice);
+    setQualityTier(payload.qualityTier);
+    setRooms(payload.rooms);
+    setActivePreset(null);
 
-    // Set active floor based on available floors
-    const floorsInPreset = [...new Set(initializedRooms.map(r => r.floor))];
+    // Set active floor based on available floor
+    const floorsInPreset = [...new Set(payload.rooms.map(r => r.floor))];
     if (floorsInPreset.length > 0) {
       setSelectedFloor(floorsInPreset[0]);
     }
@@ -328,23 +687,43 @@ export default function HomeownersPage() {
     setActiveTab("spreadsheet");
     showToast("Manual Quote Created!");
 
-    // Auto-save to localStorage history
+    // Save locally
     const auditId = `audit_${Date.now()}`;
     setSelectedSavedAuditId(auditId);
     const newAudit = {
       id: auditId,
       date: new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
-      projectName: manualProjectName,
-      contractorName: manualContractorName,
-      quotedPrice: parseFloat(manualQuotedPrice) || 0,
-      qualityTier: manualQualityTier,
-      rooms: initializedRooms
+      projectName: payload.projectName,
+      contractorName: payload.contractorName,
+      quotedPrice: payload.quotedPrice,
+      qualityTier: payload.qualityTier,
+      rooms: payload.rooms,
+      projectDetails: payload.projectDetails
     };
+
+    // Auto-save to backend if logged in
+    if (user) {
+      createQuote({ 
+        contractorName: payload.contractorName, 
+        totalAmount: payload.quotedPrice,
+        projectName: payload.projectName,
+        qualityTier: payload.qualityTier,
+        projectDetails: payload.projectDetails,
+        rooms: payload.rooms
+      })
+        .then((res) => {
+          if (res && res.data) {
+            newAudit.id = res.data.id;
+            setSelectedSavedAuditId(res.data.id);
+            setAuditHistory(prev => [newAudit, ...prev.filter(item => item.id !== auditId)]);
+          }
+        })
+        .catch((err) => console.error("Failed to save manual quote to backend:", err));
+    }
 
     const updatedHistory = [newAudit, ...auditHistory];
     setAuditHistory(updatedHistory);
     localStorage.setItem("domnak_audit_history", JSON.stringify(updatedHistory));
-
     // Clear form inputs
     setManualProjectName("");
     setManualContractorName("");
@@ -352,7 +731,74 @@ export default function HomeownersPage() {
     setManualQualityTier("premium");
   };
 
-  // Simulated AI Scanner Step Sequencer
+  const handleSaveCurrentAudit = () => {
+    if (isSaving) return;
+    setIsSaving(true);
+
+    const isExisting = selectedSavedAuditId && !selectedSavedAuditId.toString().startsWith("audit_");
+    const auditId = selectedSavedAuditId || `audit_${Date.now()}`;
+    const auditToSave = {
+      id: auditId,
+      date: new Date().toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+      projectName,
+      contractorName,
+      quotedPrice,
+      qualityTier,
+      rooms: JSON.parse(JSON.stringify(rooms))
+    };
+
+    if (user) {
+      if (isExisting) {
+        updateQuote(selectedSavedAuditId, {
+          contractorName,
+          totalAmount: quotedPrice,
+          projectName,
+          qualityTier,
+          rooms
+        })
+          .then((res) => {
+            saveAuditToHistory(auditToSave);
+            showToast("Audit updated in database!");
+            setIsSaving(false);
+          })
+          .catch((err) => {
+            console.error("Failed to update quote on backend:", err);
+            saveAuditToHistory(auditToSave);
+            showToast("Audit saved (local fallback).");
+            setIsSaving(false);
+          });
+      } else {
+        createQuote({
+          contractorName,
+          totalAmount: quotedPrice,
+          projectName,
+          qualityTier,
+          rooms
+        })
+          .then((res) => {
+            if (res && res.data) {
+              auditToSave.id = res.data.id;
+              setSelectedSavedAuditId(res.data.id);
+              saveAuditToHistory(auditToSave);
+              showToast("Audit saved to database!");
+            }
+            setIsSaving(false);
+          })
+          .catch((err) => {
+            console.error("Failed to create quote on backend:", err);
+            saveAuditToHistory(auditToSave);
+            showToast("Audit saved (local fallback).");
+            setIsSaving(false);
+          });
+      }
+    } else {
+      saveAuditToHistory(auditToSave);
+      showToast("Audit saved locally!");
+      setIsSaving(false);
+    }
+  };
+
+  
   useEffect(() => {
     if (!isAnalyzing) return;
 
@@ -368,18 +814,33 @@ export default function HomeownersPage() {
       setAnalysisStep((prev) => {
         if (prev >= steps.length - 1) {
           clearInterval(timer);
-          // Load preset data
-          const data = PRESETS[activePreset];
-          setProjectName(data.projectName);
-          setContractorName(data.contractorName);
-          setQuotedPrice(data.quotedPrice);
-          setQualityTier(data.qualityTier);
-          setRooms(JSON.parse(JSON.stringify(data.rooms))); // deep copy
-          
-          // Set active floor based on available floors in the preset
-          const floorsInPreset = [...new Set(data.rooms.map(r => r.floor))];
-          if (floorsInPreset.length > 0) {
-            setSelectedFloor(floorsInPreset[0]);
+          // Load preset data if applicable
+          let finalContractorName = contractorName;
+          let finalProjectName = projectName;
+          let finalQuotedPrice = quotedPrice;
+
+          if (activePreset) {
+            const data = PRESETS[activePreset];
+            if (data) {
+              setProjectName(data.projectName);
+              setContractorName(data.contractorName);
+              setQuotedPrice(data.quotedPrice);
+              setQualityTier(data.qualityTier);
+              setRooms(JSON.parse(JSON.stringify(data.rooms))); // deep copy
+              
+              const floorsInPreset = [...new Set(data.rooms.map(r => r.floor))];
+              if (floorsInPreset.length > 0) {
+                setSelectedFloor(floorsInPreset[0]);
+              }
+              finalContractorName = data.contractorName;
+              finalProjectName = data.projectName;
+              finalQuotedPrice = data.quotedPrice;
+            }
+          } else {
+            const floorsInParsed = [...new Set(rooms.map(r => r.floor))];
+            if (floorsInParsed.length > 0) {
+              setSelectedFloor(floorsInParsed[0]);
+            }
           }
 
           setIsAnalyzing(false);
@@ -387,27 +848,10 @@ export default function HomeownersPage() {
           setActiveTab("spreadsheet");
           showToast("AI Quote Analysis Complete!");
           
-          // Auto-save this new audit to localStorage history list
-          const auditId = `audit_${Date.now()}`;
-          setSelectedSavedAuditId(auditId);
-          const newAudit = {
-            id: auditId,
-            date: new Date().toLocaleDateString("en-US", { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
-            projectName: data.projectName,
-            contractorName: data.contractorName,
-            quotedPrice: data.quotedPrice,
-            qualityTier: data.qualityTier,
-            rooms: JSON.parse(JSON.stringify(data.rooms))
-          };
-          setTimeout(() => {
-            saveAuditToHistory(newAudit);
-          }, 100);
-
-          // Initialize Chat Greetings
           setChatMessages([
             {
               sender: "ai",
-              text: `Hello! I am your DomNak AI Project Consultant. I have audited the proposal from **${data.contractorName}** for the **${data.projectName}**. The quoted total is **$${data.quotedPrice.toLocaleString()}**.\n\nI can help identify red flags, cross-reference regional averages, or outline cost-saving items. What would you like to explore?`
+              text: `Hello! I am your DomNak AI Project Consultant. I have audited the proposal from **${finalContractorName || "the contractor"}** for the **${finalProjectName || "your project"}**. The quoted total is **$${(finalQuotedPrice || 0).toLocaleString()}**.\n\nI can help identify red flags, cross-reference regional averages, or outline cost-saving items. What would you like to explore?`
             }
           ]);
 
@@ -437,10 +881,18 @@ export default function HomeownersPage() {
       prevRooms.map(room => {
         if (room.id === roomId) {
           let parsedValue = value;
-          if (field === "width" || field === "length") {
+          if (field === "width" || field === "length" || field === "quantity" || field === "unit_price" || field === "total_price") {
             parsedValue = parseFloat(value) || 0;
           }
-          return { ...room, [field]: parsedValue };
+          const updated = { ...room, [field]: parsedValue };
+          
+          if (field === "quantity" || field === "unit_price") {
+            const qty = field === "quantity" ? parsedValue : (updated.quantity ?? updated.length ?? 0);
+            const up = field === "unit_price" ? parsedValue : (updated.unit_price || 0);
+            updated.total_price = qty * up;
+            updated.length = qty; // sync length for area-based floor logic
+          }
+          return updated;
         }
         return room;
       })
@@ -449,12 +901,24 @@ export default function HomeownersPage() {
 
   const deleteRoom = (roomId) => {
     setRooms(prevRooms => prevRooms.filter(room => room.id !== roomId));
-    showToast("Room removed from floor plan");
+    showToast("Item removed from estimate");
   };
 
   const addRoom = () => {
+    const isAi = rooms.some(r => r.unit_price !== undefined || r.unit !== undefined);
     const newRoomId = `custom_${Date.now()}`;
-    const newRoom = {
+    const newRoom = isAi ? {
+      id: newRoomId,
+      name: "New Line Item",
+      quantity: 1,
+      unit: "pcs",
+      unit_price: 10.0,
+      total_price: 10.0,
+      notes: "Custom specification details",
+      floor: "Ground Floor",
+      width: 1,
+      length: 1
+    } : {
       id: newRoomId,
       name: "New Room Space",
       category: "bedroom",
@@ -464,7 +928,7 @@ export default function HomeownersPage() {
       notes: "Standard specification"
     };
     setRooms(prevRooms => [...prevRooms, newRoom]);
-    showToast("Added new room slot to " + selectedFloor);
+    showToast(isAi ? "Added new line item slot" : "Added new room slot to " + selectedFloor);
   };
 
   const resetToPresetDefaults = () => {
@@ -565,7 +1029,7 @@ export default function HomeownersPage() {
   };
 
   // Chat agent response compilation
-  const handleChatSubmit = (userQuery) => {
+  const handleChatSubmit = async (userQuery) => {
     if (!userQuery.trim()) return;
 
     // Append user message
@@ -574,44 +1038,69 @@ export default function HomeownersPage() {
     setChatInput("");
     setIsChatTyping(true);
 
-    // Simulate AI response based on query keywords
-    setTimeout(() => {
-      let aiText = "";
-      const q = userQuery.toLowerCase();
+    try {
+      // Connect to backend
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/chat/chat/stream`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(localStorage.getItem("access_token") && !["mock-token-xyz", "undefined", "null"].includes(localStorage.getItem("access_token")) && { Authorization: `Bearer ${localStorage.getItem("access_token")}` })
+        },
+        body: JSON.stringify({
+          message: userQuery,
+          user_id: user?.id || "anonymous"
+        })
+      });
 
-      if (q.includes("red flag") || q.includes("fair") || q.includes("markup")) {
-        aiText = `Based on my current BoQ audit for your **${projectName}** proposal:\n\n` +
-                 `1. 🚩 **Markup Assessment**: The contractor's quote of **$${quotedPrice.toLocaleString()}** represents a **${markupPercentage.toFixed(1)}%** premium over our calculated benchmark of **$${fairMarketEstimate.toLocaleString(undefined, {maximumFractionDigits: 0})}** (Fair Market Estimate).\n\n` +
-                 `2. ⚠️ **Unspecified Line-items**: The quote is presented as a lump sum without itemized material specifications. Check if they specify the brand of cement (e.g. Camel or Siam Cement) and the steel grade (SD40 vs SD30).\n\n` +
-                 `3. 📏 **Dimension Check**: The current layout totals **${totalArea.toFixed(1)}m²**. If the contractor's contract claims the built-up area is larger, request they double-check the survey grid.`;
-      } else if (q.includes("phnom penh") || q.includes("average") || q.includes("compare") || q.includes("similar")) {
-        const avgPerSqm = quotedPrice / totalArea;
-        aiText = `Here is how this quote compares to average residential builds in Phnom Penh for 2026:\n\n` +
-                 `• **Your Quote**: **$${avgPerSqm.toFixed(0)} / m²** (Total Area: ${totalArea.toFixed(1)}m²)\n` +
-                 `• **Market Standard Range**: $320 - $380 / m²\n` +
-                 `• **Market Premium Range**: $450 - $520 / m²\n` +
-                 `• **Market Luxury Range**: $620 - $750 / m²\n\n` +
-                 `Since you selected **${qualityTier}** tier finishes, the contractor's rate of **$${avgPerSqm.toFixed(0)}/m²** is **${priceDifference > 0 ? "slightly above average, likely due to contractor overhead and permit filing fees." : "highly competitive and below market baseline averages."}**`;
-      } else if (q.includes("lower") || q.includes("save") || q.includes("reduce") || q.includes("15%")) {
-        const potentialSavings = totalArea * (BASE_COSTS[qualityTier] - BASE_COSTS.standard);
-        aiText = `Here are three concrete recommendations to reduce construction costs for **${projectName}**:\n\n` +
-                 `1. 🛠️ **Optimize Finishes**: Transitioning non-essential rooms (e.g. kids bedrooms or utility storage) from **${qualityTier}** to Standard finishes can save up to **$${(potentialSavings * 0.4).toLocaleString(undefined, {maximumFractionDigits: 0})}** in tiling and woodwork.\n\n` +
-                 `2. 📐 **Consolidate Spatial Plan**: Conforming your room layouts to a square grid reduces foundation perimeter forms and brick count. Conforming the current **${totalArea.toFixed(1)}m²** plan to a tighter core can trim 10% in framing labor.\n\n` +
-                 `3. 🛒 **Direct Material Sourcing**: Negotiate a 'labor-only' masonry contract, and purchase your own cement bags and steel rebars directly from local distributors at wholesale rates.`;
-      } else if (q.includes("cement")) {
-        aiText = `Why **${Math.round(totalArea * 5.4)} bags** of cement? Let's check the math:\n\n` +
-                 `• Floor area footprint: **${totalArea.toFixed(1)}m²**\n` +
-                 `• Concrete slab thickness: **15cm** (${(totalArea * 0.15).toFixed(1)}m³ total concrete volume)\n` +
-                 `• Cement mix ratio: **350kg/m³** (7 standard 50kg bags of Portland cement per m³)\n` +
-                 `• Slab requirement: **${Math.round(totalArea * 0.15 * 7)} bags**\n\n` +
-                 `The remaining **${Math.round(totalArea * 5.4 - totalArea * 0.15 * 7)} bags** are allocated for columns, structural support beams, brick wall mortar beds, and plaster coatings.`;
-      } else {
-        aiText = `I have updated my records for the **${projectName}** (${totalArea.toFixed(1)}m²). Your current selected quality tier is **${qualityTier}** which places local average baseline cost around **$${fairMarketEstimate.toLocaleString(undefined, {maximumFractionDigits: 0})}**.\n\nCould you clarify if you want me to analyze the steel rebars quantity, check regional averages, or outline structural red flags?`;
-      }
+      if (!response.ok) throw new Error("Chat request failed");
 
-      setChatMessages((prev) => [...prev, { sender: "ai", text: aiText }]);
+      const resData = await response.json();
+      const aiReply = resData?.data?.response || resData?.message || "Success";
+
+      setChatMessages((prev) => [...prev, { sender: "ai", text: aiReply }]);
       setIsChatTyping(false);
-    }, 1200);
+
+    } catch (err) {
+      console.log("Chat API failed or Groq key missing. Falling back to local assistant:", err);
+      // Simulate AI response based on query keywords
+      setTimeout(() => {
+        let aiText = "";
+        const q = userQuery.toLowerCase();
+
+        if (q.includes("red flag") || q.includes("fair") || q.includes("markup")) {
+          aiText = `Based on my current BoQ audit for your **${projectName}** proposal:\n\n` +
+                   `1. 🚩 **Markup Assessment**: The contractor's quote of **$${quotedPrice.toLocaleString()}** represents a **${markupPercentage.toFixed(1)}%** premium over our calculated benchmark of **$${fairMarketEstimate.toLocaleString(undefined, {maximumFractionDigits: 0})}** (Fair Market Estimate).\n\n` +
+                   `2. ⚠️ **Unspecified Line-items**: The quote is presented as a lump sum without itemized material specifications. Check if they specify the brand of cement (e.g. Camel or Siam Cement) and the steel grade (SD40 vs SD30).\n\n` +
+                   `3. 📏 **Dimension Check**: The current layout totals **${totalArea.toFixed(1)}m²**. If the contractor's contract claims the built-up area is larger, request they double-check the survey grid.`;
+        } else if (q.includes("phnom penh") || q.includes("average") || q.includes("compare") || q.includes("similar")) {
+          const avgPerSqm = quotedPrice / totalArea;
+          aiText = `Here is how this quote compares to average residential builds in Phnom Penh for 2026:\n\n` +
+                   `• **Your Quote**: **$${avgPerSqm.toFixed(0)} / m²** (Total Area: ${totalArea.toFixed(1)}m²)\n` +
+                   `• **Market Standard Range**: $320 - $380 / m²\n` +
+                   `• **Market Premium Range**: $450 - $520 / m²\n` +
+                   `• **Market Luxury Range**: $620 - $750 / m²\n\n` +
+                   `Since you selected **${qualityTier}** tier finishes, the contractor's rate of **$${avgPerSqm.toFixed(0)}/m²** is **${priceDifference > 0 ? "slightly above average, likely due to contractor overhead and permit filing fees." : "highly competitive and below market baseline averages."}**`;
+        } else if (q.includes("lower") || q.includes("save") || q.includes("reduce") || q.includes("15%")) {
+          const potentialSavings = totalArea * (BASE_COSTS[qualityTier] - BASE_COSTS.standard);
+          aiText = `Here are three concrete recommendations to reduce construction costs for **${projectName}**:\n\n` +
+                   `1. 🛠️ **Optimize Finishes**: Transitioning non-essential rooms (e.g. kids bedrooms or utility storage) from **${qualityTier}** to Standard finishes can save up to **$${(potentialSavings * 0.4).toLocaleString(undefined, {maximumFractionDigits: 0})}** in tiling and woodwork.\n\n` +
+                   `2. 📐 **Consolidate Spatial Plan**: Conforming your room layouts to a square grid reduces foundation perimeter forms and brick count. Conforming the current **${totalArea.toFixed(1)}m²** plan to a tighter core can trim 10% in framing labor.\n\n` +
+                   `3. 🛒 **Direct Material Sourcing**: Negotiate a 'labor-only' masonry contract, and purchase your own cement bags and steel rebars directly from local distributors at wholesale rates.`;
+        } else if (q.includes("cement")) {
+          aiText = `Why **${Math.round(totalArea * 5.4)} bags** of cement? Let's check the math:\n\n` +
+                   `• Floor area footprint: **${totalArea.toFixed(1)}m²**\n` +
+                   `• Concrete slab thickness: **15cm** (${(totalArea * 0.15).toFixed(1)}m³ total concrete volume)\n` +
+                   `• Cement mix ratio: **350kg/m³** (7 standard 50kg bags of Portland cement per m³)\n` +
+                   `• Slab requirement: **${Math.round(totalArea * 0.15 * 7)} bags**\n\n` +
+                   `The remaining **${Math.round(totalArea * 5.4 - totalArea * 0.15 * 7)} bags** are allocated for columns, structural support beams, brick wall mortar beds, and plaster coatings.`;
+        } else {
+          aiText = `I have updated my records for the **${projectName}** (${totalArea.toFixed(1)}m²). Your current selected quality tier is **${qualityTier}** which places local average baseline cost around **$${fairMarketEstimate.toLocaleString(undefined, {maximumFractionDigits: 0})}**.\n\nCould you clarify if you want me to analyze the steel rebars quantity, check regional averages, or outline structural red flags?`;
+        }
+
+        setChatMessages((prev) => [...prev, { sender: "ai", text: aiText }]);
+        setIsChatTyping(false);
+      }, 1200);
+    }
   };
 
   return (
@@ -622,70 +1111,79 @@ export default function HomeownersPage() {
       </Head>
 
       {/* ── Full-viewport sidebar layout ─────────────────────────────── */}
-      <div className="flex h-screen overflow-hidden bg-[#F5F2EB]">
+      <div className={styles.pageLayoutContainer}>
+
+        {/* Overlay cover when dashboard sidebar is open in drawer mode */}
+        {sidebarTab !== "home" && dashboardSidebarOpen && (
+          <div 
+            className="fixed inset-0 z-[55] bg-black/40 backdrop-blur-xs transition-opacity duration-300 cursor-pointer"
+            onClick={() => setDashboardSidebarOpen(false)}
+          />
+        )}
 
         {/* ── Sidebar ──────────────────────────────────────────────────── */}
-        <aside className="w-[230px] flex-shrink-0 bg-[#1E1C18] flex flex-col h-full">
-          {/* Logo */}
-          <div className="px-6 pt-7 pb-4 flex items-center gap-2">
-            <Link 
-              href="/" 
-              className="p-1.5 text-white/55 hover:text-white hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
-              title="Back to Home"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Link>
-            <Link href="/" className="inline-block">
-              <img
-                src="/assets/domnak-circle-logo.png"
-                alt="DomNak Logo"
-                className="h-10 w-auto object-contain"
-              />
-            </Link>
-          </div>
+        <aside className={`${styles.sidebar} ${
+          sidebarTab === "home" 
+            ? "" 
+            : `fixed inset-y-0 left-0 z-[60] transition-transform duration-300 ease-in-out ${
+                dashboardSidebarOpen ? "translate-x-0" : "-translate-x-full"
+              }`
+        }`}>
+          
+          {/* Subtle top decoration */}
+          <div className={styles.topDecoration} />
 
           {/* Navigation */}
-          <nav className="flex-1 px-3 space-y-0.5">
+          <nav className={styles.navContainer} style={{ marginTop: "2rem" }}>
+            <Link 
+              href="/" 
+              className={`${styles.navButton} group mb-2`}
+            >
+              <div className="h-5 w-5 rounded-full border border-white/50 flex items-center justify-center group-hover:border-white transition-colors duration-200">
+                <ArrowLeft className="h-3 w-3 text-white/80 group-hover:text-white" />
+              </div>
+              <span>Home</span>
+            </Link>
             {[
-              { id: "home",      label: "Home",      icon: LayoutDashboard },
-              { id: "quotes",    label: "Quotes",    icon: FileText },
-              { id: "history",    label: "History",    icon: History },
-              { id: "suppliers", label: "Suppliers", icon: Store },
-              { id: "chat",      label: "Chat",      icon: MessageSquare },
-            ].map(({ id, label, icon: Icon }) => (
+                { id: "home",      label: "Dashboard",      icon: LayoutDashboard },
+                { id: "quotes",    label: "Cost Estimator", icon: Calculator },
+                { id: "history",   label: "History",        icon: History },
+                { id: "chatbot",   label: "Chatbot",        icon: Bot },
+                { id: "chat",      label: "Messages",       icon: MailIcon },
+                { id: "suppliers", label: "Supplier",       icon: Store }
+              ].map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
-                onClick={() => setSidebarTab(id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-bold transition-all cursor-pointer ${
-                  sidebarTab === id
-                    ? "bg-white/12 text-white"
-                    : "text-white/55 hover:text-white hover:bg-white/6"
-                }`}
+                onClick={() => {
+                  setSidebarTab(id);
+                  setDashboardSidebarOpen(false);
+                }}
+                className={`${sidebarTab === id ? styles.navButtonActive : styles.navButton} group`}
               >
-                <Icon className={`h-4.5 w-4.5 flex-shrink-0 ${
-                  sidebarTab === id ? "text-brand-gold" : "text-white/50"
+                <Icon className={`h-4.5 w-4.5 flex-shrink-0 transition-transform duration-300 group-hover:scale-105 ${
+                  sidebarTab === id ? "text-[#806626]" : "text-white/80 group-hover:text-white"
                 }`} />
-                {label}
+                <span>{label}</span>
               </button>
             ))}
           </nav>
 
           {/* User chip at bottom */}
-          <div className="px-4 pb-6 pt-4 border-t border-white/8 flex items-center justify-between gap-3">
+          <div className={styles.userChipWrapper}>
             <div className="flex items-center gap-3 min-w-0">
-              <div className="h-8 w-8 rounded-full bg-brand-gold flex items-center justify-center text-white text-xs font-black flex-shrink-0 select-none uppercase">
+              <div className={styles.avatar}>
                 {(user?.name || "H").charAt(0).toUpperCase()}
               </div>
-              <div className="min-w-0">
-                <p className="text-xs font-black text-white truncate">{user?.name || "Homeowner"}</p>
-                <p className="text-[10px] text-white/40 font-semibold leading-tight">Homeowner Portal</p>
+              <div className={styles.userInfo}>
+                <p className={styles.userName}>{user?.name || "Homeowner"}</p>
+                <p className={styles.userRole}>Homeowner</p>
               </div>
             </div>
 
             {user ? (
               <button
                 onClick={logout}
-                className="p-2 text-white/45 hover:text-rose-500 hover:bg-rose-500/10 rounded-xl transition-all duration-200 cursor-pointer shrink-0"
+                className={styles.logoutBtn}
                 title="Log Out"
               >
                 <LogOut className="h-4.5 w-4.5" />
@@ -693,7 +1191,7 @@ export default function HomeownersPage() {
             ) : (
               <Link
                 href="/login"
-                className="text-[10px] font-extrabold text-brand-gold hover:text-brand-gold/80 transition-colors uppercase tracking-wider shrink-0"
+                className={styles.loginLink}
               >
                 Log In
               </Link>
@@ -702,135 +1200,334 @@ export default function HomeownersPage() {
         </aside>
 
         {/* ── Scrollable content area ───────────────────────────────── */}
-        <div className="flex-1 overflow-y-auto bg-[#F5F2EB] relative">
+        <div className={styles.scrollableContent}>
 
           {/* Global Toast */}
           {customNotification && (
-            <div className="fixed bottom-8 right-8 z-50 flex items-center gap-2 rounded-xl bg-[#1E1C18] px-5 py-4 text-sm font-semibold text-white shadow-xl animate-in fade-in slide-in-from-bottom-5 duration-300">
-              <Sparkles className="h-4 w-4 text-brand-gold animate-pulse" />
+            <div className={styles.globalToast}>
+              <Sparkles className="h-4.5 w-4.5 text-brand-gold animate-pulse" />
               <span>{customNotification}</span>
             </div>
           )}
 
           {/* Page header bar */}
-          <div className="flex items-center justify-between px-8 pt-8 pb-2">
-            <div>
-              <p className="text-sm text-[#1E1C18]/50 font-semibold">
-                {new Date().getHours() < 12 ? "Good morning" : new Date().getHours() < 17 ? "Good afternoon" : "Good evening"}
-              </p>
-              <h1 className="text-2xl font-black text-[#1E1C18] tracking-tight">{user?.name || "Homeowner"}</h1>
+          {sidebarTab !== "chatbot" && (
+            <div className={styles.headerBar}>
+              <div className="flex items-center space-x-3">
+                {sidebarTab !== "home" && (
+                  <button
+                    type="button"
+                    onClick={() => setDashboardSidebarOpen(!dashboardSidebarOpen)}
+                    className="p-2 text-[#201b12]/60 hover:text-[#b38e42] hover:bg-[#201b12]/5 rounded-xl transition-all cursor-pointer"
+                    title="Toggle sidebar"
+                  >
+                    <Menu className="h-5 w-5" />
+                  </button>
+                )}
+                {sidebarTab === "home" && auditHistory.length === 0 ? (
+                  <div className="flex items-center h-16">
+                    <img 
+                      src="/assets/domnak-logo-with-kh-cropped.png" 
+                      alt="DomNak Logo" 
+                      className="h-16 w-auto object-contain"
+                    />
+                  </div>
+                ) : (
+                  <h1 className={styles.headerTitleGold}>
+                    {sidebarTab === "home"
+                      ? "Dashboard"
+                      : sidebarTab === "quotes"
+                      ? "Cost Estimator"
+                      : sidebarTab === "history"
+                      ? "History"
+                      : sidebarTab === "chatbot"
+                      ? "Chatbot"
+                      : sidebarTab === "chat"
+                      ? "Messages"
+                      : sidebarTab === "suppliers"
+                      ? "Supplier Hub"
+                      : "Homeowner Hub"}
+                  </h1>
+                )}
+              </div>
+              <div className={styles.headerIconContainer} style={{ position: "relative" }}>
+                <div className={styles.iconWrapper} onClick={() => setShowNotifications(!showNotifications)}>
+                  <Bell className={styles.headerIcon} />
+                  {notifications.some(n => n.unread) && (
+                    <span className={styles.redBadge}>
+                      {notifications.filter(n => n.unread).length}
+                    </span>
+                  )}
+                </div>
+                
+                {showNotifications && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowNotifications(false)} />
+                    <div className="absolute right-0 top-14 w-80 bg-white border border-[#1E1C18]/10 rounded-3xl shadow-xl p-5 z-50 animate-in fade-in slide-in-from-top-3 duration-200">
+                      <div className="flex items-center justify-between border-b border-[#1E1C18]/5 pb-3 mb-3">
+                        <span className="text-xs font-black text-[#1E1C18]">Notifications</span>
+                        <button 
+                          onClick={() => setNotifications(prev => prev.map(n => ({ ...n, unread: false })))}
+                          className="text-[9px] font-black text-brand-gold hover:underline uppercase tracking-wider bg-transparent border-none cursor-pointer"
+                        >
+                          Mark all read
+                        </button>
+                      </div>
+                      
+                      <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                        {notifications.length === 0 ? (
+                          <div className="text-center py-6 text-[10px] text-[#1E1C18]/40 font-bold">
+                            No notifications.
+                          </div>
+                        ) : (
+                          notifications.map((notif) => (
+                            <div 
+                              key={notif.id} 
+                              onClick={() => {
+                                setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, unread: false } : n));
+                                if (notif.category === "message") {
+                                  setSidebarTab("chat");
+                                }
+                                setShowNotifications(false);
+                              }}
+                              className={`p-3 rounded-2xl border text-left cursor-pointer transition-all duration-200 flex gap-2.5 ${notif.unread ? "bg-brand-gold/5 border-brand-gold/15" : "bg-[#FAF7F0]/25 hover:bg-[#FAF7F0]/60 border-[#1E1C18]/5"}`}
+                            >
+                              <div className="h-8 w-8 rounded-xl bg-brand-gold/10 border border-brand-gold/10 flex items-center justify-center flex-shrink-0 shadow-sm">
+                                {notif.category === "message" ? (
+                                  <MessageSquare className="h-4 w-4 text-brand-gold" />
+                                ) : notif.category === "audit" ? (
+                                  <CheckCircle className="h-4 w-4 text-brand-gold" />
+                                ) : (
+                                  <Scale className="h-4 w-4 text-brand-gold" />
+                                )}
+                              </div>
+                              <div className="space-y-0.5 flex-1 min-w-0">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[11px] font-black text-[#1E1C18] block truncate">{notif.title}</span>
+                                  {notif.unread && <span className="h-1.5 w-1.5 rounded-full bg-brand-gold flex-shrink-0" />}
+                                </div>
+                                <p className="text-[10px] text-[#1E1C18]/65 font-medium leading-relaxed break-words">{notif.message}</p>
+                                <span className="text-[8px] text-[#1E1C18]/40 font-mono block mt-1">{notif.time}</span>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+                
+                <div className={styles.iconWrapper} onClick={() => setSidebarTab("chatbot")}>
+                  <User className={styles.headerIcon} />
+                </div>
+              </div>
             </div>
-            <div className="h-11 w-11 rounded-full bg-brand-gold flex items-center justify-center text-white font-black text-base shadow-md">
-              {(user?.name || "H").charAt(0).toUpperCase()}
-            </div>
-          </div>
+          )}
 
           {/* ── TAB CONTENT ────────────────────────────────────────────── */}
-          <div className="px-8 pt-6 pb-12">
+          {sidebarTab === "chatbot" ? (
+            <div className="flex-grow flex flex-col overflow-hidden p-4 md:p-6 bg-[#FAF7F0]/40">
+              <CostHelperChatbot 
+                layoutMode="embedded" 
+                onBack={() => setSidebarTab("home")} 
+                userOverride={user} 
+                logoutOverride={logout} 
+                dashboardSidebarOpen={dashboardSidebarOpen}
+                setDashboardSidebarOpen={setDashboardSidebarOpen}
+              />
+            </div>
+          ) : (
+            <div className={styles.tabContentWrapper}>
 
-            {/* ──── HOME TAB ──────────────────────────────────────────── */}
+            {/* ── HOME TAB ──────────────────────────────────────────── */}
             {sidebarTab === "home" && (
-              <div className="space-y-4 animate-in fade-in duration-300">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
-                  {/* Card 1 — Dark CTA */}
-                  <div className="bg-[#1E1C18] rounded-2xl p-7 flex flex-col justify-between min-h-[200px] relative overflow-hidden shadow-lg">
-                    <div className="absolute top-0 right-0 w-20 h-20 bg-brand-gold/10 rounded-bl-full" />
-                    <div className="space-y-1.5">
-                      <p className="text-white/55 text-sm font-semibold">Have a contractor quote?</p>
-                      <h2 className="text-white font-black text-xl leading-snug tracking-tight">Upload it for an AI audit</h2>
-                    </div>
-                    <button
-                      id="btn-home-upload-quote"
-                      onClick={() => setSidebarTab("quotes")}
-                      className="self-start mt-4 inline-flex items-center gap-2 bg-brand-gold hover:bg-brand-gold-dark text-white font-black text-sm rounded-xl px-5 py-3 shadow-md hover:shadow-lg transition-all cursor-pointer"
-                    >
-                      Upload quote <ArrowRight className="h-4 w-4" />
-                    </button>
-                  </div>
-
-                  {/* Card 2 — Cost estimator */}
-                  <div className="bg-white rounded-2xl p-7 flex flex-col justify-between min-h-[200px] border border-black/5 shadow-sm">
-                    <div>
-                      <p className="text-[#1E1C18]/50 text-sm font-semibold">Cost estimator</p>
-                      <p className="text-[#1E1C18] font-black text-3xl mt-1 tracking-tight">${profileBudget.toLocaleString()}</p>
-                      <p className="text-[#1E1C18]/45 text-xs font-semibold mt-1">est. renovation budget</p>
-                    </div>
-                    <div className="mt-4 space-y-1.5">
-                      <div className="h-2 w-full bg-[#1E1C18]/8 rounded-full overflow-hidden">
-                        <div className="h-full bg-brand-gold rounded-full" style={{ width: "60%" }} />
-                      </div>
-                      <div className="flex justify-between text-[10px] text-[#1E1C18]/40 font-semibold">
-                        <span>60% planned</span>
-                        <button onClick={() => setSidebarTab("history")} className="text-brand-gold font-bold hover:underline cursor-pointer">Adjust →</button>
+              <div className="animate-in fade-in duration-300 flex-1 flex flex-col">
+                {auditHistory.length === 0 ? (
+                  /* State A: New Signup (No uploads yet) */
+                  <div 
+                    className={styles.angkorBanner}
+                    style={{ backgroundImage: "url('/assets/domnak-landing.png')" }}
+                  >
+                    {/* Overlays to match home page hero */}
+                    <div className={styles.bannerOverlay1} />
+                    <div className={styles.bannerOverlay2} />
+                    
+                    <div className={styles.angkorBannerContent}>
+                      <h2 className={styles.welcomeText}>
+                        Welcome to Homeowner Hub
+                        <br />
+                        <span className={styles.welcomeName}>{capitalizeName(user?.name || "Jonh Doe")}</span>
+                      </h2>
+                      <div className={styles.welcomeActions}>
+                        <button 
+                          onClick={() => setSidebarTab("quotes")}
+                          className={styles.uploadQuoteBtn}
+                        >
+                          Upload Qoute
+                        </button>
+                        <span 
+                          onClick={() => setSidebarTab("suppliers")}
+                          className={`${styles.exploreLink} group`}
+                        >
+                          Explore Supplier
+                          <span className="ml-2 transition-transform group-hover:translate-x-1">&rarr;</span>
+                        </span>
                       </div>
                     </div>
                   </div>
-
-                  {/* Card 3 — Latest quote audit */}
-                  <div className="bg-white rounded-2xl p-7 border border-black/5 shadow-sm space-y-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[#1E1C18]/50 text-sm font-semibold">Latest quote audit</p>
-                      {auditHistory.length > 0 ? (
-                        <span className="bg-amber-100 text-amber-700 border border-amber-200 text-[10px] font-extrabold rounded-full px-2.5 py-1 uppercase tracking-wide">Under review</span>
-                      ) : (
-                        <span className="bg-[#1E1C18]/5 text-[#1E1C18]/40 text-[10px] font-extrabold rounded-full px-2.5 py-1 uppercase tracking-wide">No audits yet</span>
-                      )}
+                ) : (
+                  /* State B: Active User (Has did some projects) */
+                  <div className="space-y-6">
+                    <div className={styles.dashboardGreetingSection}>
+                      <span className={styles.welcomeBackText}>Welcome back</span>
+                      <h2 className={styles.goodMorningTitle}>Good Morning, {user?.name || "Jonh Doe"}</h2>
                     </div>
-                    {auditHistory.length > 0 ? (
-                      <>
-                        <h3 className="font-black text-[#1E1C18] text-base leading-tight">
-                          {auditHistory[0]?.contractorName} — {auditHistory[0]?.projectName}
-                        </h3>
-                        <p className="text-xs text-[#1E1C18]/55 font-semibold leading-relaxed">AI flagged 2 line items priced 18% above market rate</p>
-                      </>
-                    ) : (
-                      <>
-                        <h3 className="font-black text-[#1E1C18]/40 text-base">Roofing contractor — Heng Bros</h3>
-                        <p className="text-xs text-[#1E1C18]/40 font-semibold">AI flagged 2 line items priced 18% above market rate</p>
-                      </>
-                    )}
-                    <button onClick={() => setSidebarTab("quotes")} className="text-xs text-brand-gold font-bold hover:underline cursor-pointer flex items-center gap-1 mt-1">
-                      View audit <ArrowRight className="h-3 w-3" />
-                    </button>
-                  </div>
 
-                  {/* Card 4 — Supplier directory */}
-                  <div className="bg-white rounded-2xl p-7 border border-black/5 shadow-sm flex flex-col justify-between space-y-4">
-                    <div className="space-y-1.5">
-                      <h3 className="font-black text-[#1E1C18] text-base">Supplier directory</h3>
-                      <p className="text-sm text-[#1E1C18]/50 font-semibold leading-relaxed">Browse verified suppliers near you</p>
-                    </div>
-                    <button
-                      id="btn-home-browse-suppliers"
-                      onClick={() => setSidebarTab("suppliers")}
-                      className="self-start text-sm font-black text-brand-gold hover:underline cursor-pointer flex items-center gap-1.5"
-                    >
-                      Browse suppliers <ArrowRight className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Milestones */}
-                <div className="bg-white rounded-2xl p-6 border border-black/5 shadow-sm">
-                  <h3 className="text-sm font-black text-[#1E1C18] flex items-center gap-2 mb-4"><Clock className="h-4 w-4 text-brand-gold" />Project Milestones</h3>
-                  <div className="relative pl-5 border-l border-[#1E1C18]/10 space-y-5 ml-2">
-                    {[
-                      { done: true,     label: "Budget & Quote Auditing",    desc: "Audit contractor rates using the AI BoQ tool. (Completed)" },
-                      { done: "active", label: "Planning & Design Approval", desc: "Collaborating on 3D layouts with Angkor Architecture Studio. (In Progress)" },
-                      { done: false,    label: "Foundation Core Laying",     desc: "Concrete slab pouring and SD40 steel rebars inspection. (Upcoming)" },
-                      { done: false,    label: "Masonry & Block Construction",desc: "Standard red brick wall layering and structural column casting. (Upcoming)" },
-                    ].map((m, i) => (
-                      <div key={i} className="relative">
-                        <div className={`absolute -left-7 top-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-black ${
-                          m.done === true ? "bg-emerald-500 text-white" : m.done === "active" ? "bg-brand-gold text-white animate-pulse" : "bg-[#1E1C18]/10 text-[#1E1C18]/40"
-                        }`}>{m.done === true ? "✓" : i + 1}</div>
-                        <h4 className={`text-xs font-extrabold ${m.done === false ? "text-[#1E1C18]/40" : "text-[#1E1C18]"}`}>{m.label}</h4>
-                        <p className={`text-[11px] mt-0.5 font-semibold ${m.done === false ? "text-[#1E1C18]/30" : "text-[#1E1C18]/55"}`}>{m.desc}</p>
+                    {/* Summary Analytics Row */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      {/* Card 1: Total Audited Value */}
+                      <div className="bg-white border border-[#1E1C18]/5 rounded-3xl p-6 shadow-sm flex items-center gap-4.5 relative overflow-hidden group hover:shadow-md transition-all duration-300">
+                        <div className="absolute top-0 right-0 w-20 h-20 bg-brand-gold/5 rounded-bl-full pointer-events-none" />
+                        <div className="h-12 w-12 rounded-2xl bg-brand-gold/10 flex items-center justify-center text-brand-gold shadow-inner group-hover:scale-105 transition-all">
+                          <DollarSign className="h-6 w-6" />
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-black text-[#1E1C18]/45 uppercase tracking-wider block">Total Audited Value</span>
+                          <span className="text-xl font-black text-[#1E1C18] mt-0.5 block">${totalAuditedVal.toLocaleString()}</span>
+                        </div>
                       </div>
-                    ))}
+
+                      {/* Card 2: Audits Run */}
+                      <div className="bg-white border border-[#1E1C18]/5 rounded-3xl p-6 shadow-sm flex items-center gap-4.5 relative overflow-hidden group hover:shadow-md transition-all duration-300">
+                        <div className="absolute top-0 right-0 w-20 h-20 bg-emerald-500/5 rounded-bl-full pointer-events-none" />
+                        <div className="h-12 w-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-600 shadow-inner group-hover:scale-105 transition-all">
+                          <CheckCircle className="h-6 w-6" />
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-black text-[#1E1C18]/45 uppercase tracking-wider block">Audits Executed</span>
+                          <span className="text-xl font-black text-[#1E1C18] mt-0.5 block">{totalAuditsRun} Saved {totalAuditsRun === 1 ? "Quote" : "Quotes"}</span>
+                        </div>
+                      </div>
+
+                      {/* Card 3: Avg Quote Cost */}
+                      <div className="bg-white border border-[#1E1C18]/5 rounded-3xl p-6 shadow-sm flex items-center gap-4.5 relative overflow-hidden group hover:shadow-md transition-all duration-300">
+                        <div className="absolute top-0 right-0 w-20 h-20 bg-indigo-500/5 rounded-bl-full pointer-events-none" />
+                        <div className="h-12 w-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center text-indigo-600 shadow-inner group-hover:scale-105 transition-all">
+                          <FileText className="h-6 w-6" />
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-black text-[#1E1C18]/45 uppercase tracking-wider block">Avg Proposal Price</span>
+                          <span className="text-xl font-black text-[#1E1C18] mt-0.5 block">${averageQuotePrice.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Split Grid */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* Projects Redesigned List */}
+                      <div className="bg-white border border-[#1E1C18]/5 rounded-3xl p-6 lg:p-8 shadow-sm flex flex-col justify-between">
+                        <div>
+                          <div className="border-b border-[#1E1C18]/5 pb-4 mb-4">
+                            <h3 className="text-base font-black text-[#1E1C18] flex items-center gap-2">
+                              <Building className="h-5 w-5 text-brand-gold" />
+                              Projects &amp; Proposal Audits
+                            </h3>
+                            <p className="text-xs text-[#1E1C18]/50 mt-0.5">List of saved audits with relative price scaling.</p>
+                          </div>
+                          <div className="space-y-3.5 max-h-[380px] overflow-y-auto pr-1">
+                            {auditHistory.map((audit) => {
+                              const tierThemes = {
+                                luxury: "border-l-4 border-brand-gold shadow-sm",
+                                premium: "border-l-4 border-[#806626] shadow-sm",
+                                standard: "border-l-4 border-slate-300 shadow-sm"
+                              };
+                              const theme = tierThemes[audit.qualityTier] || tierThemes.premium;
+                              const percentage = Math.round((audit.quotedPrice / maxQuoteVal) * 100);
+                              
+                              return (
+                                <div 
+                                  key={audit.id} 
+                                  onClick={() => loadSavedAudit(audit)}
+                                  className={`bg-[#FAF7F0]/40 hover:bg-[#FAF7F0] border border-[#1E1C18]/5 rounded-2xl p-4.5 cursor-pointer transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md flex flex-col gap-3 ${theme}`}
+                                >
+                                  <div className="flex justify-between items-start w-full">
+                                    <div className="space-y-1">
+                                      <h4 className="text-sm font-black text-[#1E1C18] tracking-tight">{audit.projectName}</h4>
+                                      <p className="text-[11px] text-[#1E1C18]/50 font-bold">
+                                        Contractor: <span className="text-[#1E1C18] font-extrabold">{audit.contractorName}</span>
+                                      </p>
+                                    </div>
+                                    <div className="text-right flex flex-col items-end gap-1 flex-shrink-0">
+                                      <span className="text-xs font-black text-brand-gold">${audit.quotedPrice.toLocaleString()}</span>
+                                      <span className="text-[9px] font-black uppercase tracking-wider text-[#806626] bg-[#806626]/10 px-2 py-0.5 rounded border border-[#806626]/20">
+                                        {audit.qualityTier}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  
+                                  {/* Micro Comparative Bar */}
+                                  <div className="w-full">
+                                    <div className="flex justify-between items-center text-[9px] text-[#1E1C18]/45 font-extrabold uppercase tracking-wider mb-1">
+                                      <span>Comparative Scale</span>
+                                      <span>{percentage}% of Max Bid</span>
+                                    </div>
+                                    <div className="w-full bg-[#FAF7F0] border border-[#1E1C18]/10 h-2 rounded-full overflow-hidden p-[1px]">
+                                      <div 
+                                        className="h-full bg-gradient-to-r from-brand-gold/60 to-brand-gold rounded-full transition-all duration-500" 
+                                        style={{ width: `${percentage}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Khmer Price Index Board */}
+                      <div className="bg-white border border-[#1E1C18]/5 rounded-3xl p-6 lg:p-8 shadow-sm flex flex-col justify-between">
+                        <div>
+                          <div className="border-b border-[#1E1C18]/5 pb-4 mb-4">
+                            <h3 className="text-base font-black text-[#1E1C18] flex items-center gap-2">
+                              <FileSpreadsheet className="h-5 w-5 text-brand-gold" />
+                              Khmer Price Index Board
+                            </h3>
+                            <p className="text-xs text-[#1E1C18]/50 mt-0.5">Wholesale material reference tracking Phnom Penh indices.</p>
+                          </div>
+                          <div className="space-y-3.5 max-h-[380px] overflow-y-auto pr-1">
+                            {[
+                              { name: "Premium Cement", source: "SCG / Chip Mong (Phnom Penh)", price: "$85 - $95 / ton", category: "Structure", trend: "+0.2%", color: "bg-emerald-50 text-emerald-700 border-emerald-100" },
+                              { name: "Deformed Steel Rebars", source: "Heng Hardware (Toul Kork)", price: "$680 - $720 / ton", category: "Structure", trend: "-1.5%", color: "bg-rose-50 text-rose-700 border-rose-100" },
+                              { name: "Red Clay Bricks (8x15x25)", source: "Local Kiln (Kandal)", price: "$0.05 - $0.07 / pc", category: "Masonry", trend: "0.0%", color: "bg-slate-50 text-slate-700 border-slate-100" },
+                              { name: "Concrete Mix (C25/30)", source: "Camel Cement (Sen Sok)", price: "$65 - $72 / m³", category: "Structure", trend: "+0.8%", color: "bg-emerald-50 text-emerald-700 border-emerald-100" },
+                              { name: "Teak Wood Parquet Flooring", source: "Angkor Ceramics (Chamkar Mon)", price: "$35 - $45 / m²", category: "Finishes", trend: "0.0%", color: "bg-slate-50 text-slate-700 border-slate-100" },
+                              { name: "Masonry Hollow Bricks", source: "ISI Steel (Phnom Penh)", price: "$0.12 - $0.15 / pc", category: "Masonry", trend: "+1.2%", color: "bg-emerald-50 text-emerald-700 border-emerald-100" }
+                            ].map((material, idx) => (
+                              <div key={idx} className="bg-[#FAF7F0]/40 hover:bg-[#FAF7F0] border border-[#1E1C18]/5 rounded-2xl p-4.5 flex justify-between items-center transition-all duration-200 hover:-translate-y-0.5">
+                                <div className="space-y-0.5">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-xs font-black text-[#1E1C18]">{material.name}</span>
+                                    <span className={`text-[8px] font-black uppercase tracking-wider px-2 py-0.5 border rounded-md ${material.color}`}>
+                                      {material.category}
+                                    </span>
+                                  </div>
+                                  <span className="text-[10px] text-[#1E1C18]/50 block font-semibold">{material.source}</span>
+                                </div>
+                                <div className="text-right flex flex-col items-end gap-1 flex-shrink-0">
+                                  <span className="text-xs font-black text-brand-gold">{material.price}</span>
+                                  <span className={`text-[9px] font-black ${material.trend.startsWith("-") ? "text-rose-600" : material.trend.startsWith("0") ? "text-[#1E1C18]/45" : "text-emerald-600"}`}>
+                                    {material.trend.startsWith("-") ? "▼" : material.trend.startsWith("0") ? "—" : "▲"} {material.trend}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             )}
 
@@ -838,17 +1535,17 @@ export default function HomeownersPage() {
             {sidebarTab === "quotes" && (
               <div className="space-y-8 animate-in fade-in duration-300">
                 {/* Stepper */}
-                <div className="mb-8 max-w-3xl mx-auto">
-                  <div className="flex items-center justify-between relative px-2">
-                    <div className="absolute left-6 right-6 top-5 h-[3px] bg-[#1E1C18]/10 rounded-full -z-10" />
-                    <div className="absolute left-6 top-5 h-[3px] bg-brand-gold rounded-full transition-all duration-700 ease-in-out -z-10" style={{ width: isAnalyzing ? "50%" : showResults ? "100%" : "0%" }} />
+                <div className={styles.stepperWrapper}>
+                  <div className={styles.stepperContainer}>
+                    <div className={styles.stepperTrack} />
+                    <div className={styles.stepperProgressTrack} style={{ width: isAnalyzing ? "50%" : showResults ? "100%" : "0%" }} />
                     {[{ n:1, label:"Upload Quote" },{ n:2, label:"AI Scanning" },{ n:3, label:"Review & Edit" }].map(({ n, label }) => {
                       const isActive = (n===1 && !isAnalyzing && !showResults)||(n===2 && isAnalyzing)||(n===3 && showResults);
                       const isDone = (n===1 && (isAnalyzing||showResults))||(n===2 && showResults);
                       return (
-                        <div key={n} className="flex flex-col items-center">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs transition-all duration-300 ${isActive ? "bg-brand-gold text-white shadow-lg shadow-brand-gold/30 ring-4 ring-brand-gold/20" : isDone ? "bg-brand-gold/20 text-brand-gold border-2 border-brand-gold/50" : "bg-white text-[#1E1C18] border-2 border-[#1E1C18]/10"}`}>{n}</div>
-                          <span className={`text-xs font-extrabold mt-3 tracking-wide transition-colors duration-300 ${isActive ? "text-brand-gold" : "text-[#1E1C18]/50"}`}>{label}</span>
+                        <div key={n} className={styles.stepperNodeWrapper}>
+                          <div className={isActive ? styles.stepperNodeActive : isDone ? styles.stepperNodeDone : styles.stepperNodeInactive}>{n}</div>
+                          <span className={isActive ? styles.stepperLabelActive : styles.stepperLabelInactive}>{label}</span>
                         </div>
                       );
                     })}
@@ -857,48 +1554,48 @@ export default function HomeownersPage() {
 
                 {!showResults && !isAnalyzing ? (
                   /* PHASE 1: Choice or Upload/Manual */
-                  <div className="max-w-2xl mx-auto animate-in fade-in duration-300">
+                  <div className={styles.quotesWrapper}>
                     {uploadMethod === null ? (
                       /* Method Selection Screen */
-                      <div className="bg-white rounded-3xl border border-black/5 shadow-lg p-8 lg:p-10 relative overflow-hidden flex flex-col gap-6">
+                      <div className={styles.setupCard}>
                         <div className="absolute top-0 right-0 w-32 h-32 bg-brand-gold/5 rounded-bl-full -z-10" />
-                        <div className="text-center max-w-md mx-auto">
-                          <h2 className="text-2xl font-black text-[#1E1C18] tracking-tight mb-2">Quote Auditing Setup</h2>
-                          <p className="text-xs text-[#1E1C18]/50 leading-relaxed">
+                        <div className={styles.setupHeader}>
+                          <h2 className={styles.setupTitle}>Quote Auditing Setup</h2>
+                          <p className={styles.setupDescription}>
                             Choose how you would like to input your contractor's quote. We will run comparison metrics against regional Cambodian indexes.
                           </p>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
+                        <div className={styles.optionsGrid}>
                           {/* Option 1: PDF Upload */}
                           <button
                             onClick={() => setUploadMethod("pdf")}
-                            className="flex flex-col items-center justify-between p-6 rounded-2xl border-2 border-[#1E1C18]/5 hover:border-brand-gold/50 bg-[#FAF7F0]/40 hover:bg-[#FAF7F0] text-center cursor-pointer transition-all duration-300 group shadow-sm hover:shadow-md"
+                            className={`${styles.optionButton} group`}
                           >
-                            <div className="h-12 w-12 bg-brand-gold/10 rounded-xl flex items-center justify-center text-brand-gold group-hover:scale-105 group-hover:bg-brand-gold group-hover:text-white transition-all duration-300 mb-4 shadow-inner">
+                            <div className={styles.optionIcon}>
                               <UploadCloud className="h-6 w-6" />
                             </div>
                             <div className="flex-1 flex flex-col justify-center">
-                              <span className="text-sm font-black text-[#1E1C18] block tracking-tight group-hover:text-brand-gold transition-colors">Upload PDF Quote</span>
-                              <span className="text-[11px] text-[#1E1C18]/50 block mt-2 font-medium leading-relaxed">
+                              <span className={styles.optionTitle}>Upload PDF Quote</span>
+                              <span className={styles.optionDesc}>
                                 Upload your constructor quote PDF to let our AI scan and analyze rates automatically.
                               </span>
                             </div>
-                            <span className="text-[9px] font-black tracking-wider uppercase text-brand-gold bg-brand-gold/10 border border-brand-gold/20 rounded-full px-2.5 py-1 mt-4">
-                              We only accept PDF
+                            <span className={styles.optionBadge}>
+                              AI Auto Scan
                             </span>
                           </button>
 
                           {/* Option 2: Manual Input */}
                           <button
                             onClick={() => setUploadMethod("manual")}
-                            className="flex flex-col items-center justify-between p-6 rounded-2xl border-2 border-[#1E1C18]/5 hover:border-brand-gold/50 bg-[#FAF7F0]/40 hover:bg-[#FAF7F0] text-center cursor-pointer transition-all duration-300 group shadow-sm hover:shadow-md"
+                            className={`${styles.optionButton} group`}
                           >
-                            <div className="h-12 w-12 bg-brand-gold/10 rounded-xl flex items-center justify-center text-brand-gold group-hover:scale-105 group-hover:bg-brand-gold group-hover:text-white transition-all duration-300 mb-4 shadow-inner">
+                            <div className={styles.optionIcon}>
                               <FileText className="h-6 w-6" />
                             </div>
                             <div className="flex-1 flex flex-col justify-center">
-                              <span className="text-sm font-black text-[#1E1C18] block tracking-tight group-hover:text-brand-gold transition-colors">Manually Input Quote</span>
+                              <span className={styles.optionTitle}>Manually Input Quote</span>
                               <span className="text-[11px] text-[#1E1C18]/50 block mt-2 font-medium leading-relaxed">
                                 Manually type in the project name, contractor information, and custom pricing parameters.
                               </span>
@@ -911,37 +1608,37 @@ export default function HomeownersPage() {
                       </div>
                     ) : uploadMethod === "pdf" ? (
                       /* PHASE 1: Upload (PDF only) */
-                      <div className="bg-white rounded-3xl border border-black/5 shadow-lg p-8 lg:p-10 relative overflow-hidden flex flex-col gap-6">
+                      <div className={styles.pdfZoneCard}>
                         <div className="absolute top-0 right-0 w-32 h-32 bg-brand-gold/5 rounded-bl-full -z-10" />
                         <div className="flex items-center justify-between">
                           <button
                             onClick={() => setUploadMethod(null)}
-                            className="inline-flex items-center gap-1.5 text-[11px] font-black text-brand-gold hover:underline cursor-pointer uppercase tracking-wider"
+                            className={styles.backToOptions}
                           >
                             ← Back to options
                           </button>
-                          <span className="text-[10px] font-black text-brand-gold bg-brand-gold/10 border border-brand-gold/20 rounded-full px-2.5 py-1 uppercase tracking-wider">
+                          <span className={styles.pdfLabel}>
                             PDF Quote Upload
                           </span>
                         </div>
                         <div>
-                          <h2 className="text-2xl font-black text-[#1E1C18] tracking-tight mb-2">Upload Contractor PDF</h2>
-                          <p className="text-xs text-[#1E1C18]/50 leading-relaxed">
-                            Select your contractor's quote document or BoQ statement. We only accept PDF format up to 15MB.
+                          <h2 className={styles.pdfTitle}>Upload Contractor PDF</h2>
+                          <p className={styles.pdfDesc}>
+                            Select your contractor's quote document or BoQ statement (up to 15MB).
                           </p>
                         </div>
                         <form onSubmit={handleFileUpload} className="space-y-6">
-                          <label id="dropzone-label" className="flex flex-col items-center justify-center border-2 border-dashed border-brand-gold/30 hover:border-brand-gold bg-[#FAF7F0]/60 hover:bg-[#FAF7F0] rounded-2xl p-8 sm:p-10 text-center cursor-pointer transition-all duration-300 group shadow-inner">
-                            <div className="h-16 w-16 bg-brand-gold/10 rounded-2xl flex items-center justify-center text-brand-gold group-hover:scale-105 group-hover:bg-brand-gold group-hover:text-white transition-all duration-300 mb-4 shadow-sm">
+                          <label id="dropzone-label" className={`${styles.dropzoneLabel} group`}>
+                            <div className={styles.dropzoneIcon}>
                               <UploadCloud className="h-8 w-8" />
                             </div>
-                            <span className="text-sm font-black text-[#1E1C18] block tracking-tight group-hover:text-brand-gold transition-colors">
+                            <span className={styles.dropzoneTitle}>
                               Drag &amp; drop your quote PDF here
                             </span>
-                            <span className="text-xs text-[#1E1C18]/45 block mt-1">or click to browse local files</span>
+                            <span className={styles.dropzoneSubtext}>or click to browse local files</span>
                             <div className="flex gap-2 mt-4">
-                              <span className="text-[10px] font-extrabold px-4 py-1.5 rounded-full bg-brand-gold text-white shadow-md border border-brand-gold/20">
-                                PDF ONLY
+                              <span className={styles.pdfBadgeOnly}>
+                                Max 15MB
                               </span>
                             </div>
                             <input
@@ -949,10 +1646,10 @@ export default function HomeownersPage() {
                               type="file"
                               accept=".pdf"
                               className="hidden"
-                              onChange={() => startAnalysis("villa")}
+                              onChange={(e) => handleFileUpload(e)}
                             />
                           </label>
-                          <div className="flex flex-wrap items-center justify-center gap-4 text-[10px] font-extrabold text-[#1E1C18]/40 py-2 border-y border-[#1E1C18]/5">
+                          <div className={styles.securityLog}>
                             <span className="flex items-center gap-1"><Lock className="h-3 w-3 text-brand-gold" /> SSL SECURE ENCRYPTION</span>
                             <span className="w-1.5 h-1.5 rounded-full bg-[#1E1C18]/20" />
                             <span className="flex items-center gap-1"><Shield className="h-3 w-3 text-brand-gold" /> 100% PRIVATE DATA</span>
@@ -961,18 +1658,18 @@ export default function HomeownersPage() {
                           </div>
                         </form>
                         <div>
-                          <h4 className="text-xs font-black text-[#1E1C18] uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                          <h4 className={styles.focusInstructionsHeader}>
                             <Sparkles className="h-3.5 w-3.5 text-brand-gold" />Focus Instructions for AI (Optional)
                           </h4>
                           <textarea
                             placeholder="e.g. 'Flag items above Phnom Penh 2025 index' or 'Separate balcony from bedroom costs'..."
                             rows={2}
-                            className="w-full text-xs bg-[#FAF7F0] border border-[#1E1C18]/10 rounded-xl px-4 py-3 text-[#1E1C18] placeholder:text-[#1E1C18]/30 focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all shadow-inner"
+                            className={styles.focusInstructionsTextarea}
                           />
                         </div>
                         <button
-                          onClick={() => startAnalysis("villa")}
-                          className="w-full bg-brand-gold hover:bg-brand-gold-dark text-white rounded-xl py-3.5 px-6 font-extrabold flex items-center justify-center gap-2 shadow-lg hover:shadow-brand-gold/20 transition-all cursor-pointer group"
+                          onClick={(e) => handleFileUpload(e)}
+                          className={`${styles.scanButton} group`}
                         >
                           <span>Scan &amp; audit quote</span>
                           <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
@@ -980,88 +1677,10 @@ export default function HomeownersPage() {
                       </div>
                     ) : (
                       /* PHASE 1: Manual Input Form */
-                      <div className="bg-white rounded-3xl border border-black/5 shadow-lg p-8 lg:p-10 relative overflow-hidden flex flex-col gap-6">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-brand-gold/5 rounded-bl-full -z-10" />
-                        <div className="flex items-center justify-between">
-                          <button
-                            onClick={() => setUploadMethod(null)}
-                            className="inline-flex items-center gap-1.5 text-[11px] font-black text-brand-gold hover:underline cursor-pointer uppercase tracking-wider"
-                          >
-                            ← Back to options
-                          </button>
-                          <span className="text-[10px] font-black text-brand-gold bg-brand-gold/10 border border-brand-gold/20 rounded-full px-2.5 py-1 uppercase tracking-wider">
-                            Manual Input
-                          </span>
-                        </div>
-                        <div>
-                          <h2 className="text-2xl font-black text-[#1E1C18] tracking-tight mb-2">Create Custom Quote</h2>
-                          <p className="text-xs text-[#1E1C18]/50 leading-relaxed">
-                            Fill in your contractor's quote details. We will initialize a dynamic spatial room model which you can customize line-by-line.
-                          </p>
-                        </div>
-                        
-                        <div className="space-y-4">
-                          <div>
-                            <label className="block text-[10px] font-black text-[#1E1C18]/55 uppercase tracking-wider mb-2">Project Name</label>
-                            <input
-                              type="text"
-                              value={manualProjectName}
-                              onChange={(e) => setManualProjectName(e.target.value)}
-                              placeholder="e.g. 2-Story Modern Villa Restoration"
-                              className="w-full text-xs bg-[#FAF7F0] border border-[#1E1C18]/10 rounded-xl px-4 py-3 text-[#1E1C18] placeholder:text-[#1E1C18]/30 focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all shadow-inner"
-                            />
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div>
-                              <label className="block text-[10px] font-black text-[#1E1C18]/55 uppercase tracking-wider mb-2">Contractor / Builder Name</label>
-                              <input
-                                type="text"
-                                value={manualContractorName}
-                                onChange={(e) => setManualContractorName(e.target.value)}
-                                placeholder="e.g. BuildCorp Cambodia"
-                                className="w-full text-xs bg-[#FAF7F0] border border-[#1E1C18]/10 rounded-xl px-4 py-3 text-[#1E1C18] placeholder:text-[#1E1C18]/30 focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all shadow-inner"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[10px] font-black text-[#1E1C18]/55 uppercase tracking-wider mb-2">Quoted Amount (USD)</label>
-                              <input
-                                type="number"
-                                value={manualQuotedPrice}
-                                onChange={(e) => setManualQuotedPrice(e.target.value)}
-                                placeholder="e.g. 145000"
-                                className="w-full text-xs bg-[#FAF7F0] border border-[#1E1C18]/10 rounded-xl px-4 py-3 text-[#1E1C18] placeholder:text-[#1E1C18]/30 focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all shadow-inner"
-                              />
-                            </div>
-                          </div>
-
-                          <div>
-                            <label className="block text-[10px] font-black text-[#1E1C18]/55 uppercase tracking-wider mb-2">Quality Tier & Material Class</label>
-                            <select
-                              value={manualQualityTier}
-                              onChange={(e) => setManualQualityTier(e.target.value)}
-                              className="w-full text-xs bg-[#FAF7F0] border border-[#1E1C18]/10 rounded-xl px-4 py-3 text-[#1E1C18] focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all cursor-pointer font-bold"
-                            >
-                              <option value="premium">Premium Class (Teak wood, marble finish - est. $480/sqm)</option>
-                              <option value="standard">Standard Class (Standard tiles, local brick - est. $350/sqm)</option>
-                              <option value="luxury">Luxury Class (Smart controls, high imports - est. $680/sqm)</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        <button
-                          onClick={handleCreateManualQuote}
-                          disabled={!manualProjectName || !manualContractorName || !manualQuotedPrice}
-                          className={`w-full text-white rounded-xl py-3.5 px-6 font-extrabold flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer group ${
-                            manualProjectName && manualContractorName && manualQuotedPrice
-                              ? "bg-brand-gold hover:bg-brand-gold-dark hover:shadow-brand-gold/20"
-                              : "bg-[#1E1C18]/25 cursor-not-allowed shadow-none"
-                          }`}
-                        >
-                          <span>Initialize manual layout</span>
-                          <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
-                        </button>
-                      </div>
+                      <ManualQuoteForm 
+                        onSubmit={handleCreateManualQuote} 
+                        onBack={() => setUploadMethod(null)} 
+                      />
                     )}
                   </div>
                 ) : isAnalyzing ? (
@@ -1084,22 +1703,29 @@ export default function HomeownersPage() {
                   </div>
                 ) : (
                   /* PHASE 3: Results */
-                  <div className="space-y-8 animate-in fade-in duration-300">
-                    <div className="flex flex-wrap items-center justify-between gap-4 bg-white border border-[#1E1C18]/5 rounded-3xl p-5 shadow-sm relative overflow-hidden">
+                  <div className={styles.editorContainer}>
+                    <div className={styles.editorHeader}>
                       <div className="absolute top-0 left-0 w-1.5 h-full bg-brand-gold rounded-l-3xl" />
                       <div className="flex items-center gap-3.5 pl-2">
                         <div className="h-11 w-11 bg-brand-gold/10 rounded-2xl flex items-center justify-center text-brand-gold shadow-inner"><FileText className="h-5 w-5" /></div>
-                        <div><h3 className="font-black text-base text-[#1E1C18] tracking-tight">{projectName}</h3><p className="text-xs text-[#1E1C18]/50 font-semibold mt-0.5">Contractor: <strong className="text-[#1E1C18] font-extrabold">{contractorName}</strong></p></div>
+                        <div><h3 className={styles.editorTitle}>{projectName}</h3><p className="text-xs text-[#1E1C18]/50 font-semibold mt-0.5">Contractor: <strong className="text-[#1E1C18] font-extrabold">{contractorName}</strong></p></div>
                       </div>
                       <div className="flex flex-wrap items-center gap-3">
-                        <button onClick={() => { const a={id:selectedSavedAuditId||`audit_${Date.now()}`,date:new Date().toLocaleDateString("en-US",{year:"numeric",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}),projectName,contractorName,quotedPrice,qualityTier,rooms:JSON.parse(JSON.stringify(rooms))}; saveAuditToHistory(a); showToast("Audit saved!"); }} className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 px-4 py-2.5 text-xs font-extrabold text-white transition-all cursor-pointer shadow-md"><CheckCircle className="h-3.5 w-3.5" />Save Audit</button>
+                        <button 
+                          onClick={handleSaveCurrentAudit} 
+                          disabled={isSaving}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2.5 text-xs font-extrabold text-white transition-all cursor-pointer shadow-md"
+                        >
+                          <CheckCircle className="h-3.5 w-3.5" />
+                          {isSaving ? "Saving..." : "Save Audit"}
+                        </button>
                         <button onClick={resetToPresetDefaults} className="inline-flex items-center gap-1.5 rounded-xl bg-[#1E1C18]/5 hover:bg-[#1E1C18]/10 px-4 py-2.5 text-xs font-extrabold text-[#1E1C18] transition-all cursor-pointer border border-[#1E1C18]/5 shadow-sm"><RotateCcw className="h-3.5 w-3.5" />Reset</button>
                         <button onClick={() => { setShowResults(false); setActivePreset(null); setSelectedSavedAuditId(null); setUploadMethod(null); }} className="inline-flex items-center gap-1.5 rounded-xl bg-brand-gold hover:bg-brand-gold-dark px-4 py-2.5 text-xs font-extrabold text-white transition-all cursor-pointer shadow-md">New Audit</button>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                      <div className="lg:col-span-8 space-y-6">
+                    <div className={styles.editorGrid}>
+                      <div className={styles.editorLeftPane}>
                         <div className="flex gap-1.5 border-b border-[#1E1C18]/10 pb-px overflow-x-auto">
                           <button id="tab-btn-spreadsheet" onClick={() => setActiveTab("spreadsheet")} className={`pb-3.5 px-5 text-xs font-black transition-all border-b-2 flex items-center gap-2 cursor-pointer ${activeTab==="spreadsheet"?"border-brand-gold text-brand-gold":"border-transparent text-[#1E1C18]/50 hover:text-[#1E1C18]"}`}><FileSpreadsheet className="h-4 w-4" />1. Room Cost Estimator</button>
                           <button id="tab-btn-boq" onClick={() => setActiveTab("boq")} className={`pb-3.5 px-5 text-xs font-black transition-all border-b-2 flex items-center gap-2 cursor-pointer ${activeTab==="boq"?"border-brand-gold text-brand-gold":"border-transparent text-[#1E1C18]/50 hover:text-[#1E1C18]"}`}><Layers className="h-4 w-4" />2. Material BoQ Breakdown</button>
@@ -1123,65 +1749,318 @@ export default function HomeownersPage() {
 
                             <div className="bg-white border border-[#1E1C18]/5 rounded-3xl shadow-sm overflow-hidden">
                               <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#1E1C18]/5 px-6 py-5">
-                                <div><h3 className="text-base font-black text-[#1E1C18] flex items-center gap-2"><Layers className="h-5 w-5 text-brand-gold" />Room Dimension Grid</h3><p className="text-xs text-[#1E1C18]/50">Adjust room sizes to compute structural cost estimates in real-time.</p></div>
-                                <div className="flex bg-[#FAF7F0] border border-[#1E1C18]/5 p-1 rounded-xl shadow-inner">
-                                  {Array.from(new Set(rooms.map(r => r.floor))).sort().map(floor => (<button key={floor} onClick={() => setSelectedFloor(floor)} className={`px-4 py-2 text-xs font-black rounded-lg transition-all cursor-pointer ${selectedFloor===floor?"bg-brand-gold text-white shadow-sm":"text-[#1E1C18]/65 hover:bg-[#1E1C18]/5"}`}>{floor}</button>))}
+                                <div>
+                                  <h3 className="text-base font-black text-[#1E1C18] flex items-center gap-2">
+                                    <Layers className="h-5 w-5 text-brand-gold" />
+                                    {isAiParsed ? "Quote Line Items Editor" : "Room Dimension Grid"}
+                                  </h3>
+                                  <p className="text-xs text-[#1E1C18]/50">
+                                    {isAiParsed ? "Review and edit the parsed contractor quantities and rates below." : "Adjust room sizes to compute structural cost estimates in real-time."}
+                                  </p>
                                 </div>
+                                {!isAiParsed && (
+                                  <div className="flex bg-[#FAF7F0] border border-[#1E1C18]/5 p-1 rounded-xl shadow-inner">
+                                    {Array.from(new Set(rooms.map(r => r.floor))).sort().map(floor => (
+                                      <button key={floor} onClick={() => setSelectedFloor(floor)} className={`px-4 py-2 text-xs font-black rounded-lg transition-all cursor-pointer ${selectedFloor===floor?"bg-brand-gold text-white shadow-sm":"text-[#1E1C18]/65 hover:bg-[#1E1C18]/5"}`}>
+                                        {floor}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
-                              <div className="overflow-x-auto">
-                                <table className="w-full min-w-[700px] border-collapse">
-                                  <thead><tr className="bg-[#FAF7F0]/60 border-b border-[#1E1C18]/5 text-left"><th className="px-6 py-4 text-[10px] font-black text-[#1E1C18]/60 uppercase tracking-wider">Room Name / Specifications</th><th className="px-4 py-4 text-[10px] font-black text-[#1E1C18]/60 uppercase tracking-wider">Category</th><th className="px-4 py-4 text-[10px] font-black text-[#1E1C18]/60 uppercase tracking-wider">Floor</th><th className="px-4 py-4 text-[10px] font-black text-[#1E1C18]/60 uppercase tracking-wider text-center">Width (m)</th><th className="px-4 py-4 text-[10px] font-black text-[#1E1C18]/60 uppercase tracking-wider text-center">Length (m)</th><th className="px-4 py-4 text-[10px] font-black text-[#1E1C18]/60 uppercase tracking-wider text-center">Area</th><th className="px-6 py-4 text-[10px] font-black text-[#1E1C18]/60 tracking-wider text-right">Action</th></tr></thead>
-                                  <tbody className="divide-y divide-[#1E1C18]/5">
-                                    {rooms.filter(r => r.floor===selectedFloor).map((room) => {
+                              <div className={styles.spreadsheetTableFrame}>
+                                <table className={styles.table}>
+                                  <thead className={styles.thead}>
+                                    <tr className={styles.tr}>
+                                      {isAiParsed ? (
+                                        <>
+                                          <th className={styles.th}>Item Description / Specification</th>
+                                          <th className={styles.th} style={{ textAlign: "center" }}>Quantity</th>
+                                          <th className={styles.th} style={{ textAlign: "center" }}>Unit</th>
+                                          <th className={styles.th} style={{ textAlign: "right" }}>Quoted Rate ($)</th>
+                                          <th className={styles.th} style={{ textAlign: "right" }}>Total Cost ($)</th>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <th className={styles.th}>Room Name / Specifications</th>
+                                          <th className={styles.th}>Category</th>
+                                          <th className={styles.th}>Floor</th>
+                                          <th className={styles.th} style={{ textAlign: "center" }}>Width (m)</th>
+                                          <th className={styles.th} style={{ textAlign: "center" }}>Length (m)</th>
+                                          <th className={styles.th} style={{ textAlign: "center" }}>Area</th>
+                                        </>
+                                      )}
+                                      <th className={styles.th} style={{ textAlign: "right" }}>Action</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className={styles.tbody}>
+                                    {rooms.filter(r => isAiParsed || r.floor===selectedFloor).map((room) => {
                                       const catStyle = getCategoryTheme(room.category);
-                                      return (<tr key={room.id} onMouseEnter={() => setHoveredRoomId(room.id)} onMouseLeave={() => setHoveredRoomId(null)} className={`transition-all duration-200 hover:bg-brand-gold/5 ${hoveredRoomId===room.id?"bg-brand-gold/5":""}`}>
-                                        <td className="px-6 py-4"><div className="space-y-1"><input type="text" value={room.name} onChange={(e) => updateRoomField(room.id,"name",e.target.value)} className="w-full text-xs font-extrabold text-[#1E1C18] bg-transparent hover:bg-[#1E1C18]/5 focus:bg-[#FAF7F0] border border-transparent focus:border-brand-gold/30 rounded-lg px-2.5 py-1.5 focus:outline-none transition-all" /><input type="text" value={room.notes} onChange={(e) => updateRoomField(room.id,"notes",e.target.value)} placeholder="Add spec notes" className="w-full text-[10px] text-[#1E1C18]/45 bg-transparent hover:bg-[#1E1C18]/5 focus:bg-[#FAF7F0] border border-transparent focus:border-brand-gold/30 rounded-lg px-2.5 py-1 focus:outline-none transition-all font-medium" /></div></td>
-                                        <td className="px-4 py-4"><select value={room.category} onChange={(e) => updateRoomField(room.id,"category",e.target.value)} className={`text-[10px] font-extrabold border rounded-xl px-3 py-2 focus:outline-none cursor-pointer shadow-sm ${catStyle.color}`}>{CATEGORIES.map(cat => <option key={cat.value} value={cat.value}>{cat.label}</option>)}</select></td>
-                                        <td className="px-4 py-4"><select value={room.floor} onChange={(e) => updateRoomField(room.id,"floor",e.target.value)} className="text-xs font-extrabold text-[#1E1C18] bg-[#FAF7F0] border border-[#1E1C18]/10 rounded-xl px-3 py-2 focus:outline-none cursor-pointer shadow-inner">{FLOORS.map(f => <option key={f} value={f}>{f}</option>)}</select></td>
-                                        <td className="px-4 py-4"><div className="flex items-center justify-center gap-1.5"><input type="number" step="0.1" min="0.5" max="15.0" value={room.width} onChange={(e) => updateRoomField(room.id,"width",e.target.value)} className="w-16 text-center text-xs font-black text-[#1E1C18] bg-[#1E1C18]/5 focus:bg-white border border-[#1E1C18]/10 focus:border-brand-gold rounded-xl py-2 focus:outline-none transition-all shadow-inner" /><span className="text-[10px] font-black text-[#1E1C18]/40">m</span></div></td>
-                                        <td className="px-4 py-4"><div className="flex items-center justify-center gap-1.5"><input type="number" step="0.1" min="0.5" max="15.0" value={room.length} onChange={(e) => updateRoomField(room.id,"length",e.target.value)} className="w-16 text-center text-xs font-black text-[#1E1C18] bg-[#1E1C18]/5 focus:bg-white border border-[#1E1C18]/10 focus:border-brand-gold rounded-xl py-2 focus:outline-none transition-all shadow-inner" /><span className="text-[10px] font-black text-[#1E1C18]/40">m</span></div></td>
-                                        <td className="px-4 py-4 text-center"><span className="text-xs font-black text-[#1E1C18] bg-[#1E1C18]/5 border border-[#1E1C18]/5 rounded-lg px-2.5 py-1">{(room.width*room.length).toFixed(1)} m²</span></td>
-                                        <td className="px-6 py-4 text-right"><button onClick={() => deleteRoom(room.id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-all cursor-pointer inline-flex items-center justify-center border border-transparent hover:border-rose-100"><Trash2 className="h-4 w-4" /></button></td>
-                                      </tr>);
+                                      return (
+                                        <tr key={room.id} className={styles.tr}>
+                                          {isAiParsed ? (
+                                            <>
+                                              {/* Item Description */}
+                                              <td className={styles.td}>
+                                                <div className="space-y-1">
+                                                  <input 
+                                                    type="text" 
+                                                    value={room.name} 
+                                                    onChange={(e) => updateRoomField(room.id, "name", e.target.value)} 
+                                                    className="w-full text-xs font-extrabold text-[#1E1C18] bg-transparent hover:bg-[#1E1C18]/5 focus:bg-[#FAF7F0] border border-transparent focus:border-brand-gold/30 rounded-lg px-2.5 py-1.5 focus:outline-none transition-all" 
+                                                  />
+                                                  <input 
+                                                    type="text" 
+                                                    value={room.notes || ""} 
+                                                    onChange={(e) => updateRoomField(room.id, "notes", e.target.value)} 
+                                                    placeholder="Add specifications" 
+                                                    className="w-full text-[10px] text-[#1E1C18]/45 bg-transparent hover:bg-[#1E1C18]/5 focus:bg-[#FAF7F0] border border-transparent focus:border-brand-gold/30 rounded-lg px-2.5 py-1 focus:outline-none transition-all font-medium" 
+                                                  />
+                                                </div>
+                                              </td>
+                                              
+                                              {/* Quantity */}
+                                              <td className={styles.td}>
+                                                <div className="flex items-center justify-center">
+                                                  <input 
+                                                    type="number" 
+                                                    step="any"
+                                                    value={room.quantity !== undefined ? room.quantity : room.length} 
+                                                    onChange={(e) => {
+                                                      const val = parseFloat(e.target.value) || 0;
+                                                      updateRoomField(room.id, "quantity", val);
+                                                    }} 
+                                                    className="w-20 text-center text-xs font-black text-[#1E1C18] bg-[#1E1C18]/5 focus:bg-white border border-[#1E1C18]/10 focus:border-brand-gold rounded-xl py-2 focus:outline-none transition-all shadow-inner" 
+                                                  />
+                                                </div>
+                                              </td>
+                                              
+                                              {/* Unit */}
+                                              <td className={styles.td}>
+                                                <div className="flex items-center justify-center">
+                                                  <input 
+                                                    type="text" 
+                                                    value={room.unit || "pcs"} 
+                                                    onChange={(e) => updateRoomField(room.id, "unit", e.target.value)} 
+                                                    className="w-16 text-center text-xs font-black text-[#1E1C18] bg-[#1E1C18]/5 focus:bg-white border border-[#1E1C18]/10 focus:border-brand-gold rounded-xl py-2 focus:outline-none transition-all shadow-inner" 
+                                                  />
+                                                </div>
+                                              </td>
+                                              
+                                              {/* Unit Price */}
+                                              <td className={styles.td}>
+                                                <div className="flex items-center justify-end gap-1">
+                                                  <span className="text-[10px] font-black text-[#1E1C18]/40">$</span>
+                                                  <input 
+                                                    type="number" 
+                                                    step="0.01"
+                                                    value={room.unit_price || 0} 
+                                                    onChange={(e) => {
+                                                      const val = parseFloat(e.target.value) || 0;
+                                                      updateRoomField(room.id, "unit_price", val);
+                                                    }} 
+                                                    className="w-24 text-right text-xs font-black text-[#1E1C18] bg-[#1E1C18]/5 focus:bg-white border border-[#1E1C18]/10 focus:border-brand-gold rounded-xl py-2 pr-2.5 focus:outline-none transition-all shadow-inner" 
+                                                  />
+                                                </div>
+                                              </td>
+                                              
+                                              {/* Total Price */}
+                                              <td className={styles.td} style={{ textAlign: "right" }}>
+                                                <span className="text-xs font-black text-[#1E1C18] bg-[#1E1C18]/5 border border-[#1E1C18]/5 rounded-lg px-2.5 py-1">
+                                                  ${(parseFloat(room.total_price) || ( (parseFloat(room.quantity) || parseFloat(room.length) || 0) * (parseFloat(room.unit_price) || 0) )).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                </span>
+                                              </td>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <td className={styles.td}><div className="space-y-1"><input type="text" value={room.name} onChange={(e) => updateRoomField(room.id,"name",e.target.value)} className="w-full text-xs font-extrabold text-[#1E1C18] bg-transparent hover:bg-[#1E1C18]/5 focus:bg-[#FAF7F0] border border-transparent focus:border-brand-gold/30 rounded-lg px-2.5 py-1.5 focus:outline-none transition-all" /><input type="text" value={room.notes} onChange={(e) => updateRoomField(room.id,"notes",e.target.value)} placeholder="Add spec notes" className="w-full text-[10px] text-[#1E1C18]/45 bg-transparent hover:bg-[#1E1C18]/5 focus:bg-[#FAF7F0] border border-transparent focus:border-brand-gold/30 rounded-lg px-2.5 py-1 focus:outline-none transition-all font-medium" /></div></td>
+                                              <td className={styles.td}><select value={room.category} onChange={(e) => updateRoomField(room.id,"category",e.target.value)} className={`text-[10px] font-extrabold border rounded-xl px-3 py-2 focus:outline-none cursor-pointer shadow-sm ${catStyle.color}`}>{CATEGORIES.map(cat => <option key={cat.value} value={cat.value}>{cat.label}</option>)}</select></td>
+                                              <td className={styles.td}><select value={room.floor} onChange={(e) => updateRoomField(room.id,"floor",e.target.value)} className="text-xs font-extrabold text-[#1E1C18] bg-[#FAF7F0] border border-[#1E1C18]/10 rounded-xl px-3 py-2 focus:outline-none cursor-pointer shadow-inner">{FLOORS.map(f => <option key={f} value={f}>{f}</option>)}</select></td>
+                                              <td className={styles.td}><div className="flex items-center justify-center gap-1.5"><input type="number" step="0.1" min="0.5" max="15.0" value={room.width} onChange={(e) => updateRoomField(room.id,"width",e.target.value)} className="w-16 text-center text-xs font-black text-[#1E1C18] bg-[#1E1C18]/5 focus:bg-white border border-[#1E1C18]/10 focus:border-brand-gold rounded-xl py-2 focus:outline-none transition-all shadow-inner" /><span className="text-[10px] font-black text-[#1E1C18]/40">m</span></div></td>
+                                              <td className={styles.td}><div className="flex items-center justify-center gap-1.5"><input type="number" step="0.1" min="0.5" max="15.0" value={room.length} onChange={(e) => updateRoomField(room.id,"length",e.target.value)} className="w-16 text-center text-xs font-black text-[#1E1C18] bg-[#1E1C18]/5 focus:bg-white border border-[#1E1C18]/10 focus:border-brand-gold rounded-xl py-2 focus:outline-none transition-all shadow-inner" /><span className="text-[10px] font-black text-[#1E1C18]/40">m</span></div></td>
+                                              <td className={styles.td} style={{ textAlign: "center" }}><span className="text-xs font-black text-[#1E1C18] bg-[#1E1C18]/5 border border-[#1E1C18]/5 rounded-lg px-2.5 py-1">{(room.width*room.length).toFixed(1)} m²</span></td>
+                                            </>
+                                          )}
+                                          <td className={styles.td} style={{ textAlign: "right" }}>
+                                            <button onClick={() => deleteRoom(room.id)} className="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition-all cursor-pointer inline-flex items-center justify-center border border-transparent hover:border-rose-100">
+                                              <Trash2 className="h-4 w-4" />
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      );
                                     })}
-                                    {rooms.filter(r => r.floor===selectedFloor).length===0&&(<tr><td colSpan={7} className="px-6 py-12 text-center text-xs text-[#1E1C18]/40 font-semibold">No rooms on this floor.</td></tr>)}
+                                    {rooms.filter(r => isAiParsed || r.floor===selectedFloor).length===0&&(
+                                      <tr>
+                                        <td colSpan={isAiParsed ? 6 : 7} className="px-6 py-12 text-center text-xs text-[#1E1C18]/40 font-semibold">
+                                          No line items available in this quote.
+                                        </td>
+                                      </tr>
+                                    )}
                                   </tbody>
                                 </table>
                               </div>
                               <div className="bg-[#FAF7F0]/40 border-t border-[#1E1C18]/5 px-6 py-5 flex items-center justify-between">
-                                <button onClick={addRoom} className="inline-flex items-center gap-1.5 rounded-full bg-brand-gold hover:bg-brand-gold-dark px-5 py-2.5 text-xs font-extrabold text-white transition-all shadow-md cursor-pointer"><Plus className="h-4 w-4" />Add Room to {selectedFloor}</button>
-                                <div className="text-xs text-[#1E1C18]/55 font-bold">Floor Area: <span className="text-brand-gold font-black bg-brand-gold/10 border border-brand-gold/20 px-3 py-1.5 rounded-xl ml-1">{rooms.filter(r=>r.floor===selectedFloor).reduce((acc,r)=>acc+(r.width*r.length),0).toFixed(1)} m²</span></div>
+                                <button onClick={addRoom} className="inline-flex items-center gap-1.5 rounded-full bg-brand-gold hover:bg-brand-gold-dark px-5 py-2.5 text-xs font-extrabold text-white transition-all shadow-md cursor-pointer">
+                                  <Plus className="h-4 w-4" />
+                                  {isAiParsed ? "Add Line Item" : `Add Room to ${selectedFloor}`}
+                                </button>
+                                <div className="text-xs text-[#1E1C18]/55 font-bold">
+                                  {isAiParsed ? (
+                                    <>
+                                      Total Price:{" "}
+                                      <span className="text-brand-gold font-black bg-brand-gold/10 border border-brand-gold/20 px-3 py-1.5 rounded-xl ml-1">
+                                        ${rooms.reduce((acc, r) => acc + (parseFloat(r.total_price) || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                      </span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      Floor Area:{" "}
+                                      <span className="text-brand-gold font-black bg-brand-gold/10 border border-brand-gold/20 px-3 py-1.5 rounded-xl ml-1">
+                                        {rooms.filter(r=>r.floor===selectedFloor).reduce((acc,r)=>acc+(r.width*r.length),0).toFixed(1)} m²
+                                      </span>
+                                    </>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </div>
                         )}
-
+ 
                         {activeTab === "boq" && (
-                          <div className="bg-white border border-[#1E1C18]/5 rounded-3xl shadow-sm p-6 lg:p-8 space-y-6 animate-in fade-in duration-200">
-                            <div><h3 className="text-lg font-black text-[#1E1C18] flex items-center gap-2"><Layers className="h-5 w-5 text-brand-gold" />BoQ Line-Item Auditor</h3><p className="text-xs text-[#1E1C18]/50">AI-extracted raw material quantities. Click <span className="font-extrabold text-brand-gold">Explain</span> for plain language breakdowns.</p></div>
-                            <div className="space-y-4">
-                              {getBoqItems().map((item) => {
-                                const isExpanded = expandedBoqItem === item.id;
-                                return (
-                                  <div key={item.id} className={`border rounded-2xl transition-all duration-300 ${isExpanded?"border-brand-gold bg-[#FAF7F0] shadow-sm":"border-[#1E1C18]/10 bg-white hover:border-[#1E1C18]/20 hover:shadow-sm"}`}>
-                                    <div onClick={() => setExpandedBoqItem(isExpanded?null:item.id)} className="flex flex-wrap items-center justify-between gap-4 p-5 cursor-pointer select-none">
-                                      <div className="flex items-center gap-3.5"><div className="h-10 w-10 bg-[#FAF7F0] border border-[#1E1C18]/5 rounded-xl flex items-center justify-center text-lg shadow-sm">{item.id==="cement"?"🧱":item.id==="steel"?"🏗️":item.id==="bricks"?"🧱":item.id==="labor"?"👷":item.id==="paint"?"🎨":"⚡"}</div><div><h4 className="text-sm font-black text-[#1E1C18] leading-tight">{item.name}</h4><p className="text-[11px] text-[#1E1C18]/50 font-semibold mt-1">Quantity: <strong className="text-[#1E1C18] font-extrabold">{item.quantity}</strong></p></div></div>
-                                      <div className="flex items-center gap-5"><div className="text-right"><span className="text-[10px] text-[#1E1C18]/45 font-extrabold block uppercase tracking-wider">Benchmark Rate</span><span className="text-xs font-black text-[#1E1C18]">${item.unitPrice.toFixed(2)}</span></div><div className="text-right"><span className="text-[10px] text-[#1E1C18]/45 font-extrabold block uppercase tracking-wider">Estimated Cost</span><span className="text-xs font-black text-brand-gold bg-brand-gold/10 px-2 py-0.5 rounded border border-brand-gold/25">${Math.round(item.total).toLocaleString()}</span></div><button className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${isExpanded?"bg-brand-gold text-white shadow-md":"bg-brand-gold/10 text-brand-gold hover:bg-brand-gold/25"}`}>Explain</button></div>
+                          <div className={styles.boqList}>
+                            {isAiParsed ? (
+                              <>
+                                <div>
+                                  <h3 className="text-lg font-black text-[#1E1C18] flex items-center gap-2">
+                                    <Layers className="h-5 w-5 text-brand-gold" />
+                                    AI-Driven Rate Verification
+                                  </h3>
+                                  <p className="text-xs text-[#1E1C18]/50">
+                                    Real-time comparison of contractor quotes against standard Cambodian market averages.
+                                  </p>
+                                </div>
+                                <div className="space-y-4">
+                                  {aiAnalysisResults.length === 0 ? (
+                                    <div className="bg-[#FAF7F0]/40 border border-dashed border-[#1E1C18]/10 rounded-2xl py-12 text-center text-xs text-[#1E1C18]/40 font-semibold">
+                                      AI price analysis is compiling. Please wait...
                                     </div>
-                                    {isExpanded&&(<div className="px-5 pb-5 pt-1 border-t border-[#1E1C18]/5 animate-in slide-in-from-top-2 duration-300"><div className="bg-[#FAF7F0] border border-brand-gold/20 rounded-xl p-4 flex gap-3.5 text-xs text-[#1E1C18]/85 leading-relaxed shadow-inner font-semibold"><div className="flex-shrink-0 text-brand-gold mt-0.5"><Sparkles className="h-4.5 w-4.5 animate-pulse" /></div><div><strong className="text-brand-gold block font-black text-xs uppercase tracking-wide mb-1">AI Auditing Rationale</strong>{item.explanation}</div></div></div>)}
-                                  </div>
-                                );
-                              })}
-                            </div>
+                                  ) : (
+                                    aiAnalysisResults.map((item, idx) => {
+                                      const isExpanded = expandedBoqItem === (item.id || idx);
+                                      const overprice = item.overprice_percent || 0;
+                                      const materialName = item.line_items?.material_name || item.material_name || "Material Details";
+                                      const marketPriceVal = item.market_avg ?? item.market_price;
+                                      const userPriceVal = item.user_price;
+                                      
+                                      const verdictThemes = {
+                                        green: { text: "text-emerald-700 bg-emerald-50 border-emerald-100", label: "Fair" },
+                                        fair: { text: "text-emerald-700 bg-emerald-50 border-emerald-100", label: "Fair" },
+                                        amber: { text: "text-amber-800 bg-amber-50 border-amber-200/80", label: "Slightly High" },
+                                        slightly_high: { text: "text-amber-800 bg-amber-50 border-amber-200/80", label: "Slightly High" },
+                                        red: { text: "text-rose-800 bg-rose-50 border-rose-200/80", label: "Overpriced" },
+                                        overpriced: { text: "text-rose-800 bg-rose-50 border-rose-200/80", label: "Overpriced" },
+                                      };
+                                      const theme = verdictThemes[item.verdict] || verdictThemes.fair;
+
+                                      return (
+                                        <div key={item.id || idx} className={styles.boqItem}>
+                                          <div onClick={() => setExpandedBoqItem(isExpanded ? null : (item.id || idx))} className={styles.boqItemHeader}>
+                                            <div className="flex items-center gap-3.5">
+                                              <div className="h-10 w-10 bg-[#FAF7F0] border border-[#1E1C18]/5 rounded-xl flex items-center justify-center text-lg shadow-sm">
+                                                {overprice > 20 ? "🚨" : overprice > 5 ? "⚠️" : "✅"}
+                                              </div>
+                                              <div>
+                                                <h4 className="text-sm font-black text-[#1E1C18] leading-tight">{materialName}</h4>
+                                                <span className={`inline-block mt-1 text-[9px] font-black uppercase tracking-wider ${theme.text} px-2 py-0.5 rounded border shadow-sm`}>
+                                                  {theme.label} {overprice > 0 && `(+${overprice.toFixed(1)}%)`}
+                                                </span>
+                                              </div>
+                                            </div>
+                                            <div className="flex items-center gap-5">
+                                              <div className="text-right">
+                                                <span className="text-[10px] text-[#1E1C18]/45 font-extrabold block uppercase tracking-wider">Quoted Price</span>
+                                                <span className="text-xs font-black text-[#1E1C18]">${parseFloat(userPriceVal || 0).toFixed(2)}</span>
+                                              </div>
+                                              <div className="text-right">
+                                                <span className="text-[10px] text-[#1E1C18]/45 font-extrabold block uppercase tracking-wider">Market Avg</span>
+                                                <span className="text-xs font-black text-brand-gold bg-brand-gold/10 px-2 py-0.5 rounded border border-brand-gold/25">
+                                                  {marketPriceVal && marketPriceVal > 0 ? `$${parseFloat(marketPriceVal).toFixed(2)}` : "N/A"}
+                                                </span>
+                                              </div>
+                                              <button className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${isExpanded ? "bg-brand-gold text-white shadow-md" : "bg-brand-gold/10 text-brand-gold hover:bg-brand-gold/25"}`}>
+                                                Explain
+                                              </button>
+                                            </div>
+                                          </div>
+                                          {isExpanded && (
+                                            <div className={styles.boqItemContent}>
+                                              <div className="bg-[#FAF7F0] border border-brand-gold/20 rounded-xl p-4 flex gap-3.5 text-xs text-[#1E1C18]/85 leading-relaxed shadow-inner font-semibold">
+                                                <div className="flex-shrink-0 text-brand-gold mt-0.5">
+                                                  <Sparkles className="h-4.5 w-4.5 animate-pulse" />
+                                                </div>
+                                                <div className="space-y-2">
+                                                  <div>
+                                                    <strong className="text-brand-gold block font-black text-xs uppercase tracking-wide mb-1">AI Audit Rationale</strong>
+                                                    {item.explanation || item.reason}
+                                                  </div>
+                                                  {item.negotiation_tip && (
+                                                    <div className="pt-2 border-t border-brand-gold/10">
+                                                      <strong className="text-amber-800 block font-black text-xs uppercase tracking-wide mb-1">Negotiation Recommendation</strong>
+                                                      {item.negotiation_tip}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })
+                                  )}
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div><h3 className="text-lg font-black text-[#1E1C18] flex items-center gap-2"><Layers className="h-5 w-5 text-brand-gold" />BoQ Line-Item Auditor</h3><p className="text-xs text-[#1E1C18]/50">AI-extracted raw material quantities. Click <span className="font-extrabold text-brand-gold">Explain</span> for plain language breakdowns.</p></div>
+                                <div className="space-y-4">
+                                  {getBoqItems().map((item) => {
+                                    const isExpanded = expandedBoqItem === item.id;
+                                    return (
+                                      <div key={item.id} className={styles.boqItem}>
+                                        <div onClick={() => setExpandedBoqItem(isExpanded?null:item.id)} className={styles.boqItemHeader}>
+                                          <div className="flex items-center gap-3.5"><div className="h-10 w-10 bg-[#FAF7F0] border border-[#1E1C18]/5 rounded-xl flex items-center justify-center text-lg shadow-sm">{item.id==="cement"?"🧱":item.id==="steel"?"🏗️":item.id==="bricks"?"🧱":item.id==="labor"?"👷":item.id==="paint"?"🎨":"⚡"}</div><div><h4 className="text-sm font-black text-[#1E1C18] leading-tight">{item.name}</h4><p className="text-[11px] text-[#1E1C18]/50 font-semibold mt-1">Quantity: <strong className="text-[#1E1C18] font-extrabold">{item.quantity}</strong></p></div></div>
+                                          <div className="flex items-center gap-5"><div className="text-right"><span className="text-[10px] text-[#1E1C18]/45 font-extrabold block uppercase tracking-wider">Benchmark Rate</span><span className="text-xs font-black text-[#1E1C18]">${item.unitPrice.toFixed(2)}</span></div><div className="text-right"><span className="text-[10px] text-[#1E1C18]/45 font-extrabold block uppercase tracking-wider">Estimated Cost</span><span className="text-xs font-black text-brand-gold bg-brand-gold/10 px-2 py-0.5 rounded border border-brand-gold/25">${Math.round(item.total).toLocaleString()}</span></div><button className={`px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${isExpanded?"bg-brand-gold text-white shadow-md":"bg-brand-gold/10 text-brand-gold hover:bg-brand-gold/25"}`}>Explain</button></div>
+                                        </div>
+                                        {isExpanded&&(
+                                          <div className={styles.boqItemContent}>
+                                            <div className="bg-[#FAF7F0] border border-brand-gold/20 rounded-xl p-4 flex gap-3.5 text-xs text-[#1E1C18]/85 leading-relaxed shadow-inner font-semibold">
+                                              <div className="flex-shrink-0 text-brand-gold mt-0.5"><Sparkles className="h-4.5 w-4.5 animate-pulse" /></div>
+                                              <div><strong className="text-brand-gold block font-black text-xs uppercase tracking-wide mb-1">AI Auditing Rationale</strong>{item.explanation}</div>
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </>
+                            )}
                           </div>
                         )}
 
                         {activeTab === "chat" && (
-                          <div className="bg-white border border-[#1E1C18]/5 rounded-3xl shadow-sm flex flex-col h-[550px] overflow-hidden animate-in fade-in duration-200">
+                          <div className={styles.chatLayout} style={{ height: "550px" }}>
                             <div className="bg-[#FAF7F0] border-b border-[#1E1C18]/5 px-6 py-4 flex items-center justify-between"><div className="flex items-center gap-3"><div className="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse" /><div><h3 className="text-xs font-black text-[#1E1C18] uppercase tracking-wider">DomNak AI Consultant</h3><p className="text-[10px] text-[#1E1C18]/45 font-bold">Active on project data & Cambodian metrics</p></div></div><span className="text-[9px] font-extrabold text-brand-gold bg-brand-gold/10 border border-brand-gold/20 rounded-full px-2.5 py-1 tracking-wider uppercase">Private Audit Agent</span></div>
-                            <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-[#FAF7F0]/30 shadow-inner">
-                              {chatMessages.map((msg,index) => (<div key={index} className={`flex ${msg.sender==="user"?"justify-end":"justify-start"}`}><div className={`max-w-[80%] rounded-2xl px-4 py-3.5 text-xs leading-relaxed whitespace-pre-line shadow-sm border font-semibold ${msg.sender==="user"?"bg-[#1E1C18] text-white border-transparent rounded-tr-none":"bg-white text-[#1E1C18] border-[#1E1C18]/5 rounded-tl-none"}`}>{msg.sender==="ai"&&(<div className="flex items-center gap-1.5 text-[9px] font-black text-brand-gold tracking-wider uppercase mb-2"><Sparkles className="h-3 w-3" /><span>DomNak Agent</span></div>)}{msg.text}</div></div>))}
-                              {isChatTyping&&(<div className="flex justify-start"><div className="bg-white text-[#1E1C18] border border-[#1E1C18]/5 rounded-2xl rounded-tl-none px-4 py-3.5 shadow-sm flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#1E1C18]/30 animate-bounce" /><span className="h-2 w-2 rounded-full bg-[#1E1C18]/30 animate-bounce [animation-delay:0.2s]" /><span className="h-2 w-2 rounded-full bg-[#1E1C18]/30 animate-bounce [animation-delay:0.4s]" /></div></div>)}
+                            <div className={styles.chatMessagesContainer}>
+                              {chatMessages.map((msg,index) => (
+                                <div key={index} className={msg.sender==="user" ? styles.chatBubbleUser : styles.chatBubbleAssistant}>
+                                  <div className={msg.sender==="user" ? "max-w-[80%] rounded-2xl px-4 py-3.5 text-xs leading-relaxed whitespace-pre-line shadow-sm border font-semibold bg-[#1E1C18] text-white border-transparent rounded-tr-none" : "max-w-[80%] rounded-2xl px-4 py-3.5 text-xs leading-relaxed whitespace-pre-line shadow-sm border font-semibold bg-white text-[#1E1C18] border-[#1E1C18]/5 rounded-tl-none"}>
+                                    {msg.sender==="ai"&&(<div className="flex items-center gap-1.5 text-[9px] font-black text-brand-gold tracking-wider uppercase mb-2"><Sparkles className="h-3 w-3" /><span>DomNak Agent</span></div>)}
+                                    {msg.text}
+                                  </div>
+                                </div>
+                              ))}
+                              {isChatTyping&&(<div className={styles.chatBubbleAssistant}><div className="bg-white text-[#1E1C18] border border-[#1E1C18]/5 rounded-2xl rounded-tl-none px-4 py-3.5 shadow-sm flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#1E1C18]/30 animate-bounce" /><span className="h-2 w-2 rounded-full bg-[#1E1C18]/30 animate-bounce [animation-delay:0.2s]" /><span className="h-2 w-2 rounded-full bg-[#1E1C18]/30 animate-bounce [animation-delay:0.4s]" /></div></div>)}
                               <div ref={chatBottomRef} />
                             </div>
                             <div className="px-6 py-3 border-t border-[#1E1C18]/5 bg-white flex flex-wrap gap-2">
@@ -1189,36 +2068,149 @@ export default function HomeownersPage() {
                               <button id="btn-chat-benchmarks" onClick={() => handleChatSubmit("Compare with Phnom Penh Averages")} className="inline-flex items-center gap-1.5 text-[10px] font-extrabold text-brand-gold bg-brand-gold/10 border border-brand-gold/15 hover:bg-brand-gold/20 px-3.5 py-2 rounded-full cursor-pointer transition-colors shadow-sm">🏢 Check Local Averages</button>
                               <button id="btn-chat-savings" onClick={() => handleChatSubmit("How can I lower construction cost by 15%?")} className="inline-flex items-center gap-1.5 text-[10px] font-extrabold text-emerald-700 bg-emerald-50 border border-emerald-100 hover:bg-emerald-100 px-3.5 py-2 rounded-full cursor-pointer transition-colors shadow-sm">💡 Show Savings Tips</button>
                             </div>
-                            <form onSubmit={(e) => { e.preventDefault(); handleChatSubmit(chatInput); }} className="border-t border-[#1E1C18]/5 bg-[#FAF7F0] p-4 flex gap-2.5">
+                            <form onSubmit={(e) => { e.preventDefault(); handleChatSubmit(chatInput); }} className={styles.chatInputContainer}>
                               <input id="chat-input-text" type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="Ask AI: 'Is the brick count normal?' or 'How can I save cost?'..." className="flex-grow bg-white border border-[#1E1C18]/10 rounded-full px-5 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold transition-all shadow-inner font-medium" />
-                              <button id="chat-send-btn" type="submit" disabled={!chatInput.trim()||isChatTyping} className="h-10 w-10 bg-brand-gold hover:bg-brand-gold-dark text-white rounded-full flex items-center justify-center shrink-0 disabled:opacity-50 transition-colors shadow cursor-pointer"><Send className="h-4 w-4" /></button>
+                              <button id="chat-send-btn" type="submit" disabled={!chatInput.trim()||isChatTyping} className={styles.chatSendBtn}><Send className="h-4 w-4" /></button>
                             </form>
                           </div>
                         )}
                       </div>
 
-                      {/* Right: Financial Summary */}
-                      <div className="lg:col-span-4 space-y-8">
-                        <div className="bg-[#1E1C18] text-white rounded-3xl p-6 lg:p-8 space-y-6 shadow-xl relative overflow-hidden">
-                          <div className="absolute top-0 right-0 w-28 h-28 bg-brand-gold/15 rounded-bl-full pointer-events-none -z-10" />
-                          <h3 className="text-base font-black tracking-tight border-b border-white/10 pb-3.5 flex items-center gap-2"><Scale className="h-4.5 w-4.5 text-brand-gold" />BoQ Financial Summary</h3>
-                          <div className="space-y-4">
-                            <div className="flex justify-between items-center text-xs font-semibold text-white/70"><span>Aggregate Floor Area</span><span className="font-extrabold text-sm text-white">{totalArea.toFixed(1)} m²</span></div>
-                            <div className="flex justify-between items-center text-xs font-semibold text-white/70"><span>Extracted Rooms Count</span><span className="font-extrabold text-sm text-white">{rooms.length} Spaces</span></div>
-                            <div className="flex justify-between items-center text-xs font-semibold text-white/70"><span>Material Finish Tier</span><span className="font-extrabold text-brand-gold uppercase tracking-wider text-xs">{qualityTier}</span></div>
-                            <hr className="border-white/10" />
-                            <div className="flex justify-between items-center text-[11px] text-white/60 font-semibold"><span>Baseline ({totalArea.toFixed(0)}m² × ${BASE_COSTS[qualityTier]}/m²)</span><span>${baselineCost.toLocaleString("en-US",{maximumFractionDigits:0})}</span></div>
-                            <div className="flex justify-between items-center text-[11px] text-white/60 font-semibold"><span>Engineering & Permits (15%)</span><span>${(baselineCost*0.15).toLocaleString("en-US",{maximumFractionDigits:0})}</span></div>
-                            <div className="flex justify-between items-center text-sm font-black border-t border-dashed border-white/15 pt-3.5"><span className="text-brand-gold">DomNak Fair Market Value</span><span className="text-brand-gold text-lg">${fairMarketEstimate.toLocaleString("en-US",{maximumFractionDigits:0})}</span></div>
-                            <div className="flex justify-between items-center text-xs font-black bg-white/5 border border-white/10 rounded-xl p-3.5"><span className="text-white/75 uppercase tracking-wider text-[10px]">Contractor's Quoted Cost</span><span className="text-white text-sm">${quotedPrice.toLocaleString()}</span></div>
-                            <div className="space-y-2">
-                              <div className="flex justify-between items-center text-[10px] font-black uppercase text-white/50"><span>Quote Position</span><span className={markupPercentage>25?"text-rose-400":markupPercentage>8?"text-amber-400":"text-emerald-400"}>{markupPercentage>0?`+${markupPercentage.toFixed(1)}% Markup`:`${markupPercentage.toFixed(1)}% Saving`}</span></div>
-                              <div className="relative w-full h-3.5 bg-white/10 rounded-full overflow-hidden border border-white/5 flex"><div className="w-[30%] bg-emerald-500/30 border-r border-white/10" /><div className="w-[45%] bg-amber-500/30 border-r border-white/10" /><div className="w-[25%] bg-rose-500/30" /><div className="absolute top-1/2 -translate-y-1/2 h-4 w-1.5 bg-brand-gold rounded-full shadow-[0_0_8px_#b38e42] transition-all duration-500 border border-white" style={{ left: `${Math.min(97,Math.max(3,30+(markupPercentage*1.5)))}%` }} /></div>
-                              <div className="flex justify-between text-[8px] font-black text-white/35 uppercase"><span>Competitive</span><span>Moderate</span><span>Overpriced</span></div>
+                      {/* Right: AI Analysis Results */}
+                      <div className="lg:col-span-4 space-y-6">
+                        {/* Quote Summary Card */}
+                        <div className="bg-[#1E1C18] text-white rounded-3xl p-6 space-y-5 shadow-xl relative overflow-hidden">
+                          <div className="absolute top-0 right-0 w-24 h-24 bg-brand-gold/10 rounded-bl-full pointer-events-none" />
+                          <h3 className="text-sm font-black tracking-tight border-b border-white/10 pb-3 flex items-center gap-2">
+                            <Scale className="h-4 w-4 text-brand-gold" />Quote Summary
+                          </h3>
+                          <div className="space-y-3">
+                            <div className="flex justify-between items-center text-xs text-white/60 font-medium">
+                              <span>Contractor</span>
+                              <span className="font-bold text-white">{contractorName || "—"}</span>
                             </div>
-                            <div className={`p-4 rounded-2xl flex items-start gap-3 border text-xs font-semibold shadow-sm transition-all duration-300 ${auditColor}`}><div className="flex-shrink-0 mt-0.5"><Info className="h-4 w-4" /></div><div className="leading-relaxed">{priceDifference>0?<span>The quote is <strong className="font-black">${Math.abs(priceDifference).toLocaleString("en-US",{maximumFractionDigits:0})}</strong> higher than our local pricing index averages.</span>:<span>The quote is <strong className="font-black">${Math.abs(priceDifference).toLocaleString("en-US",{maximumFractionDigits:0})}</strong> lower than our average rate baseline. Good value!</span>}</div></div>
+                            <div className="flex justify-between items-center text-xs text-white/60 font-medium">
+                              <span>Items Scanned</span>
+                              <span className="font-bold text-white">{rooms.length}</span>
+                            </div>
+                            <div className="flex justify-between items-center text-xs text-white/60 font-medium">
+                              <span>Quality Tier</span>
+                              <span className="font-bold text-brand-gold uppercase text-[11px]">{qualityTier}</span>
+                            </div>
+                            <hr className="border-white/8" />
+                            <div className="flex justify-between items-center text-sm font-black">
+                              <span className="text-brand-gold">Quoted Total</span>
+                              <span className="text-brand-gold text-lg">${quotedPrice.toLocaleString()}</span>
+                            </div>
                           </div>
-                          <button onClick={() => showToast("Exporting Floor Plan specifications...")} className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-gold hover:bg-brand-gold-dark px-4 py-3 text-xs font-black text-white transition-all cursor-pointer shadow hover:shadow-md"><Download className="h-4 w-4" />Export Blueprint Specs</button>
+                        </div>
+
+                        {/* AI Verdict Cards */}
+                        <div className="space-y-3">
+                          <h3 className="text-sm font-black text-[#1E1C18] flex items-center gap-2">
+                            <Sparkles className="h-4 w-4 text-brand-gold" />
+                            AI Price Analysis
+                            {aiAnalysisResults.length > 0 && (
+                              <span className="text-[10px] font-bold text-brand-gold bg-brand-gold/10 px-2 py-0.5 rounded-full border border-brand-gold/20">
+                                {aiAnalysisResults.length} items
+                              </span>
+                            )}
+                          </h3>
+
+                          {aiAnalysisResults.length === 0 ? (
+                            <div className="bg-[#FAF7F0] border border-[#1E1C18]/5 rounded-2xl p-6 text-center">
+                              <div className="text-2xl mb-2">🔍</div>
+                              <p className="text-xs font-semibold text-[#1E1C18]/50">
+                                Upload a quote PDF to see AI-powered price analysis from Groq.
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="space-y-2.5 max-h-[420px] overflow-y-auto pr-1">
+                              {aiAnalysisResults.map((item, idx) => {
+                                const verdictConfig = {
+                                  green: { bg: "bg-emerald-50/70 backdrop-blur-sm", border: "border-emerald-100", text: "text-emerald-700", dot: "bg-emerald-500", label: "Fair Price", icon: CheckCircle },
+                                  fair: { bg: "bg-emerald-50/70 backdrop-blur-sm", border: "border-emerald-100", text: "text-emerald-700", dot: "bg-emerald-500", label: "Fair Price", icon: CheckCircle },
+                                  amber: { bg: "bg-amber-50/70 backdrop-blur-sm", border: "border-amber-200/80", text: "text-amber-800", dot: "bg-amber-500", label: "Slightly High", icon: AlertTriangle },
+                                  slightly_high: { bg: "bg-amber-50/70 backdrop-blur-sm", border: "border-amber-200/80", text: "text-amber-800", dot: "bg-amber-500", label: "Slightly High", icon: AlertTriangle },
+                                  red: { bg: "bg-rose-50/70 backdrop-blur-sm", border: "border-rose-200/80", text: "text-rose-800", dot: "bg-rose-500", label: "Overpriced", icon: AlertTriangle },
+                                  overpriced: { bg: "bg-rose-50/70 backdrop-blur-sm", border: "border-rose-200/80", text: "text-rose-800", dot: "bg-rose-500", label: "Overpriced", icon: AlertTriangle },
+                                };
+                                const vc = verdictConfig[item.verdict] || verdictConfig.fair;
+                                const overprice = item.overprice_percent || 0;
+                                const materialName = item.line_items?.material_name || item.material_name || "Material Details";
+                                const qty = item.line_items?.quantity;
+                                const unit = item.line_items?.unit;
+                                const marketPriceVal = item.market_avg ?? item.market_price;
+                                const userPriceVal = item.user_price;
+                                const IconComponent = vc.icon;
+
+                                return (
+                                  <div key={item.id || idx} className={`${vc.bg} border ${vc.border} rounded-2xl p-4.5 space-y-3.5 transition-all duration-300 hover:shadow-md hover:scale-[1.01] flex flex-col`}>
+                                    {/* Header Row */}
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div className="space-y-0.5">
+                                        <h4 className="text-sm font-black text-[#1E1C18] tracking-tight line-clamp-2">
+                                          {materialName}
+                                        </h4>
+                                        {qty !== undefined && qty !== null && (
+                                          <p className="text-[10px] text-[#1E1C18]/50 font-bold uppercase tracking-wider">
+                                            Quantity: {qty} {unit || "units"}
+                                          </p>
+                                        )}
+                                      </div>
+                                      <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                                        <span className={`inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider ${vc.text} px-2.5 py-1 rounded-full bg-white/90 shadow-sm border border-black/5`}>
+                                          <IconComponent className="h-3 w-3" />
+                                          {vc.label}
+                                        </span>
+                                        {overprice > 0 && (
+                                          <span className="text-[9px] font-black text-rose-700 bg-rose-100 border border-rose-200/40 px-2 py-0.5 rounded-md">
+                                            +{overprice.toFixed(1)}% Markup
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* Pricing Comparison Grid */}
+                                    <div className="grid grid-cols-2 gap-2.5">
+                                      {userPriceVal !== undefined && userPriceVal !== null && (
+                                        <div className="bg-white/80 border border-[#1E1C18]/5 rounded-xl p-2.5 text-center shadow-sm">
+                                          <span className="text-[8px] font-extrabold text-[#1E1C18]/45 uppercase tracking-wider block mb-0.5">Quoted Rate</span>
+                                          <span className="text-sm font-black text-[#1E1C18]">${parseFloat(userPriceVal).toFixed(2)}</span>
+                                          {unit && <span className="text-[9px] text-[#1E1C18]/40 font-bold block mt-0.5">per {unit}</span>}
+                                        </div>
+                                      )}
+                                      {marketPriceVal !== undefined && marketPriceVal !== null && marketPriceVal > 0 && (
+                                        <div className="bg-white/80 border border-[#1E1C18]/5 rounded-xl p-2.5 text-center shadow-sm">
+                                          <span className="text-[8px] font-extrabold text-emerald-800/60 uppercase tracking-wider block mb-0.5">Market Average</span>
+                                          <span className="text-sm font-black text-emerald-700">${parseFloat(marketPriceVal).toFixed(2)}</span>
+                                          {unit && <span className="text-[9px] text-emerald-600/60 font-bold block mt-0.5">per {unit}</span>}
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* Analysis Reason / Explanation */}
+                                    {(item.explanation || item.reason) && (
+                                      <div className="bg-white/40 border border-black/5 rounded-xl p-3 text-[11px] text-[#1E1C18]/75 font-semibold leading-relaxed shadow-inner">
+                                        <p>{item.explanation || item.reason}</p>
+                                      </div>
+                                    )}
+
+                                    {/* Negotiation Advice Card */}
+                                    {item.negotiation_tip && (
+                                      <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 flex items-start gap-2.5 shadow-sm">
+                                        <span className="text-sm animate-pulse">💡</span>
+                                        <div className="space-y-0.5">
+                                          <span className="text-[9px] font-extrabold text-amber-800 uppercase tracking-wider block">Negotiation Strategy</span>
+                                          <p className="text-[10px] font-bold text-[#1E1C18]/80 leading-relaxed">{item.negotiation_tip}</p>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1230,50 +2222,76 @@ export default function HomeownersPage() {
             {/* ──── ESTIMATOR TAB ─────────────────────────────────────── */}
             {sidebarTab === "history" && (
               <div className="space-y-6 animate-in fade-in duration-300">
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                  <div className="lg:col-span-5 bg-white border border-[#1E1C18]/5 rounded-3xl p-6 lg:p-8 shadow-sm">
-                    <h3 className="font-black text-lg text-[#1E1C18] border-b border-[#1E1C18]/5 pb-4 mb-6 flex items-center gap-2"><Calculator className="h-5 w-5 text-brand-gold" />Budget Estimator Settings</h3>
-                    <form onSubmit={(e) => { e.preventDefault(); saveProfile(profileLocation, profileBudget, profileStartDate); }} className="space-y-5">
-                      <div><label className="block text-[10px] font-black text-[#1E1C18]/55 uppercase tracking-wider mb-2">Build Site Location</label><input type="text" value={profileLocation} onChange={(e) => setProfileLocation(e.target.value)} className="w-full text-xs bg-[#FAF7F0] border border-[#1E1C18]/10 rounded-xl px-4 py-3 font-extrabold text-[#1E1C18] focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all shadow-inner" placeholder="e.g. Phnom Penh, Toul Kork" /></div>
-                      <div><label className="block text-[10px] font-black text-[#1E1C18]/55 uppercase tracking-wider mb-2">Target Budget ($)</label><input type="number" value={profileBudget} onChange={(e) => setProfileBudget(parseInt(e.target.value)||0)} className="w-full text-xs bg-[#FAF7F0] border border-[#1E1C18]/10 rounded-xl px-4 py-3 font-extrabold text-[#1E1C18] focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all shadow-inner" /></div>
-                      <div><label className="block text-[10px] font-black text-[#1E1C18]/55 uppercase tracking-wider mb-2">Target Construction Start</label><input type="text" value={profileStartDate} onChange={(e) => setProfileStartDate(e.target.value)} className="w-full text-xs bg-[#FAF7F0] border border-[#1E1C18]/10 rounded-xl px-4 py-3 font-extrabold text-[#1E1C18] focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all shadow-inner" placeholder="e.g. Q3 2026" /></div>
-                      <div><label className="block text-[10px] font-black text-[#1E1C18]/55 uppercase tracking-wider mb-2">Property Style</label><select value={profilePropertyType} onChange={(e) => { setProfilePropertyType(e.target.value); localStorage.setItem("domnak_profile_property_type",e.target.value); }} className="w-full text-xs bg-[#FAF7F0] border border-[#1E1C18]/10 rounded-xl px-4 py-3 font-extrabold text-[#1E1C18] focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all cursor-pointer"><option value="villa">Premium Family Villa</option><option value="condo">Urban Condo</option><option value="townhouse">Modern Townhouse</option><option value="penthouse">Skyline Penthouse</option></select></div>
-                      <button type="submit" className="inline-flex items-center gap-1.5 rounded-xl bg-brand-gold hover:bg-brand-gold-dark text-white px-6 py-3.5 text-xs font-black shadow-md transition-all cursor-pointer"><CheckCircle className="h-4 w-4" />Save Settings</button>
-                    </form>
+                <div className="space-y-6 bg-white border border-[#1E1C18]/5 rounded-3xl p-6 lg:p-8 shadow-sm">
+                  <div className="flex items-center justify-between border-b border-[#1E1C18]/5 pb-4 mb-6">
+                    <h3 className="font-black text-lg text-[#1E1C18] flex items-center gap-2">
+                      <History className="h-5 w-5 text-brand-gold" />
+                      Saved Audit History
+                    </h3>
+                    <span className="text-[10px] font-black text-brand-gold bg-brand-gold/10 border border-brand-gold/20 px-3 py-1.5 rounded-full uppercase tracking-wider">
+                      {auditHistory.length} Saved {auditHistory.length === 1 ? "Audit" : "Audits"}
+                    </span>
                   </div>
 
-                  <div className="lg:col-span-7 space-y-4">
-                    <h3 className="font-black text-lg text-[#1E1C18] flex items-center gap-2"><History className="h-5 w-5 text-brand-gold" />Saved Audit History</h3>
-                    {auditHistory.length === 0 ? (
-                      <div className="text-center py-16 bg-white border border-[#1E1C18]/5 rounded-3xl shadow-sm">
-                        <div className="h-14 w-14 rounded-full bg-brand-gold/10 flex items-center justify-center text-brand-gold mx-auto mb-4 border border-brand-gold/20"><History className="h-6 w-6" /></div>
-                        <h3 className="font-extrabold text-lg text-[#1E1C18]">No Saved Audits</h3>
-                        <p className="text-xs text-[#1E1C18]/50 mt-1.5 max-w-sm mx-auto font-semibold leading-relaxed">Upload a contractor proposal in the Quotes tab to start an audit.</p>
-                        <button onClick={() => setSidebarTab("quotes")} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-brand-gold hover:bg-brand-gold-dark px-5 py-3 text-xs font-black text-white transition-all shadow-md cursor-pointer"><Building className="h-4 w-4" />Start Quote Audit</button>
+                  {auditHistory.length === 0 ? (
+                    <div className="text-center py-16 bg-[#FAF7F0]/40 border border-dashed border-[#1E1C18]/10 rounded-2xl">
+                      <div className="h-14 w-14 rounded-full bg-brand-gold/10 flex items-center justify-center text-brand-gold mx-auto mb-4 border border-brand-gold/20">
+                        <History className="h-6 w-6" />
                       </div>
-                    ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {auditHistory.map((audit) => {
-                          const savedArea = audit.rooms?.reduce((acc,r) => acc+(r.width*r.length),0)||0;
-                          return (
-                            <div key={audit.id} className="bg-white border border-[#1E1C18]/5 rounded-3xl p-6 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow relative overflow-hidden group">
-                              <div className="absolute top-0 left-0 w-1.5 h-full bg-brand-gold/40 group-hover:bg-brand-gold transition-colors rounded-l-3xl" />
-                              <div className="pl-2">
-                                <div className="flex justify-between items-start gap-4"><span className="text-[10px] font-mono text-[#1E1C18]/40 font-semibold flex items-center gap-1"><Clock className="h-3.5 w-3.5" />{audit.date}</span><span className="text-[10px] font-extrabold uppercase tracking-wider bg-brand-gold/10 text-brand-gold border border-brand-gold/20 px-2.5 py-1 rounded-md">{audit.qualityTier} finish</span></div>
-                                <h4 className="font-black text-lg text-[#1E1C18] mt-3 tracking-tight">{audit.projectName}</h4>
-                                <p className="text-xs text-[#1E1C18]/50 font-semibold mt-1">Contractor: <strong className="text-[#1E1C18] font-extrabold">{audit.contractorName}</strong></p>
-                                <div className="flex items-center gap-6 mt-4 bg-[#FAF7F0] border border-[#1E1C18]/5 p-4 rounded-xl shadow-inner"><div><span className="text-[9px] text-[#1E1C18]/40 font-black uppercase tracking-wider block">Quoted Price</span><span className="text-sm font-black text-[#1E1C18]">${audit.quotedPrice.toLocaleString()}</span></div><div className="h-8 w-[1px] bg-[#1E1C18]/10" /><div><span className="text-[9px] text-[#1E1C18]/40 font-black uppercase tracking-wider block">Estimated Area</span><span className="text-sm font-black text-[#1E1C18]">{savedArea.toFixed(1)} m²</span></div></div>
+                      <h3 className="font-extrabold text-lg text-[#1E1C18]">No Saved Audits</h3>
+                      <p className="text-xs text-[#1E1C18]/50 mt-1.5 max-w-sm mx-auto font-semibold leading-relaxed">
+                        Upload a contractor proposal in the Quotes tab to start an audit.
+                      </p>
+                      <button 
+                        onClick={() => setSidebarTab("quotes")} 
+                        className="mt-6 inline-flex items-center gap-2 rounded-xl bg-brand-gold hover:bg-brand-gold-dark px-5 py-3 text-xs font-black text-white transition-all shadow-md cursor-pointer"
+                      >
+                        <Building className="h-4 w-4" />
+                        Start Quote Audit
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {auditHistory.map((audit) => {
+                        const savedArea = audit.rooms?.reduce((acc,r) => acc+(r.width*r.length),0)||0;
+                        return (
+                          <div key={audit.id} className="bg-[#FAF7F0]/40 border border-[#1E1C18]/5 rounded-3xl p-6 shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow relative overflow-hidden group">
+                            <div className="absolute top-0 left-0 w-1.5 h-full bg-brand-gold/40 group-hover:bg-brand-gold transition-colors rounded-l-3xl" />
+                            <div className="pl-2">
+                              <div className="flex justify-between items-start gap-4">
+                                <span className="text-[10px] font-mono text-[#1E1C18]/40 font-semibold flex items-center gap-1">
+                                  <Clock className="h-3.5 w-3.5" />
+                                  {audit.date}
+                                </span>
+                                <span className="text-[10px] font-extrabold uppercase tracking-wider bg-brand-gold/10 text-brand-gold border border-brand-gold/20 px-2.5 py-1 rounded-md">
+                                  {audit.qualityTier} finish
+                                </span>
                               </div>
-                              <div className="flex gap-3 mt-5 pl-2 border-t border-[#1E1C18]/5 pt-4">
-                                <button onClick={() => loadSavedAudit(audit)} className="flex-grow inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-gold hover:bg-brand-gold-dark text-white px-4 py-2.5 text-xs font-black shadow transition-all cursor-pointer"><FileSpreadsheet className="h-3.5 w-3.5" />Load Audit</button>
-                                <button onClick={() => deleteSavedAudit(audit.id)} className="inline-flex items-center justify-center p-2.5 text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-100 rounded-xl transition-all cursor-pointer shadow-sm"><Trash2 className="h-4.5 w-4.5" /></button>
+                              <h4 className="font-black text-lg text-[#1E1C18] mt-3 tracking-tight">{audit.projectName}</h4>
+                              <p className="text-xs text-[#1E1C18]/50 font-semibold mt-1">
+                                Contractor: <strong className="text-[#1E1C18] font-extrabold">{audit.contractorName}</strong>
+                              </p>
+                              <div className="flex items-center gap-6 mt-4 bg-white border border-[#1E1C18]/5 p-4 rounded-xl shadow-inner">
+                                <div>
+                                  <span className="text-[9px] text-[#1E1C18]/40 font-black uppercase tracking-wider block">Quoted Price</span>
+                                  <span className="text-sm font-black text-[#1E1C18]">${audit.quotedPrice.toLocaleString()}</span>
+                                </div>
+                                <div className="h-8 w-[1px] bg-[#1E1C18]/10" />
+                                <div>
+                                  <span className="text-[9px] text-[#1E1C18]/40 font-black uppercase tracking-wider block">Estimated Area</span>
+                                  <span className="text-sm font-black text-[#1E1C18]">{savedArea.toFixed(1)} m²</span>
+                                </div>
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
+                            <div className="flex gap-3 mt-5 pl-2 border-t border-[#1E1C18]/5 pt-4">
+                              <button onClick={() => loadSavedAudit(audit)} className="flex-grow inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-gold hover:bg-brand-gold-dark text-white px-4 py-2.5 text-xs font-black shadow transition-all cursor-pointer"><FileSpreadsheet className="h-3.5 w-3.5" />Load Audit</button>
+                              <button onClick={() => deleteSavedAudit(audit.id)} className="inline-flex items-center justify-center p-2.5 text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-100 rounded-xl transition-all cursor-pointer shadow-sm"><Trash2 className="h-4.5 w-4.5" /></button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1290,23 +2308,19 @@ export default function HomeownersPage() {
                     <Link href="/supplier" className="inline-flex items-center gap-2 bg-brand-gold hover:bg-brand-gold-dark text-white font-black text-sm rounded-xl px-5 py-3 shadow-md hover:shadow-lg transition-all cursor-pointer">Open Supplier Directory <ArrowRight className="h-4 w-4" /></Link>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {[
-                    { name:"Camel Cement Cambodia",    category:"Cement & Concrete",    badge:"⭐ Top Rated", location:"Phnom Penh" },
-                    { name:"Siam Cement Group",        category:"Structural Materials", badge:"🏆 Premium",   location:"Kandal Province" },
-                    { name:"Heng Hardware Co.",        category:"Steel & Rebars",       badge:"✅ Verified",  location:"Toul Kork" },
-                    { name:"Angkor Tiles & Ceramics",  category:"Flooring & Tiles",     badge:"✅ Verified",  location:"Chamkar Mon" },
-                    { name:"PPM Electrical Supply",    category:"Electrical Works",     badge:"⭐ Top Rated", location:"Sen Sok" },
-                    { name:"PhnomPenh Lumber Co.",     category:"Timber & Doors",       badge:"✅ Verified",  location:"Russei Keo" },
-                  ].map((s,i) => (
-                    <div key={i} className="bg-white border border-[#1E1C18]/5 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow">
-                      <div className="flex justify-between items-start mb-3"><div className="h-10 w-10 bg-brand-gold/10 rounded-xl flex items-center justify-center text-brand-gold font-black text-base border border-brand-gold/20">{s.name.charAt(0)}</div><span className="text-[10px] font-extrabold text-brand-gold bg-brand-gold/10 border border-brand-gold/20 rounded-full px-2.5 py-1">{s.badge}</span></div>
-                      <h4 className="font-black text-sm text-[#1E1C18] leading-tight">{s.name}</h4>
-                      <p className="text-xs text-[#1E1C18]/50 font-semibold mt-1">{s.category}</p>
-                      <div className="flex items-center gap-1.5 mt-3 text-[10px] text-[#1E1C18]/40 font-semibold"><MapPin className="h-3 w-3 text-brand-gold" />{s.location}</div>
-                      <button onClick={() => showToast(`Contacting ${s.name}...`)} className="mt-4 w-full text-xs font-black text-brand-gold bg-brand-gold/8 hover:bg-brand-gold/15 border border-brand-gold/20 rounded-xl py-2.5 transition-all cursor-pointer">Contact Supplier</button>
-                    </div>
-                  ))}
+                <div className={styles.suppliersGrid}>
+                  {suppliersList.map((s,i) => {
+                    const name = s?.name || "Unknown Supplier";
+                    return (
+                      <div key={i} className="bg-white border border-[#1E1C18]/5 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow">
+                        <div className="flex justify-between items-start mb-3"><div className="h-10 w-10 bg-brand-gold/10 rounded-xl flex items-center justify-center text-brand-gold font-black text-base border border-brand-gold/20">{name.charAt(0)}</div><span className="text-[10px] font-extrabold text-brand-gold bg-brand-gold/10 border border-brand-gold/20 rounded-full px-2.5 py-1">{s?.badge || "Verified"}</span></div>
+                        <h4 className="font-black text-sm text-[#1E1C18] leading-tight">{name}</h4>
+                        <p className="text-xs text-[#1E1C18]/50 font-semibold mt-1">{s?.category || "Building Materials"}</p>
+                        <div className="flex items-center gap-1.5 mt-3 text-[10px] text-[#1E1C18]/40 font-semibold"><MapPin className="h-3 w-3 text-brand-gold" />{s?.location || "Phnom Penh"}</div>
+                        <button onClick={() => showToast(`Contacting ${name}...`)} className="mt-4 w-full text-xs font-black text-brand-gold bg-brand-gold/8 hover:bg-brand-gold/15 border border-brand-gold/20 rounded-xl py-2.5 transition-all cursor-pointer">Contact Supplier</button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1320,7 +2334,7 @@ export default function HomeownersPage() {
                     name: "Sopheap Meas",
                     role: "Senior Structural Architect",
                     initials: "SM",
-                    lastMsg: architectChat[architectChat.length - 1]?.text || "No messages yet",
+                    lastMsg: architectChat[architectChat.length - 1]?.text || "",
                     time: architectChat[architectChat.length - 1]?.time || "",
                     project: "Angkor Architecture Studio",
                   }]}
@@ -1346,11 +2360,11 @@ export default function HomeownersPage() {
                   activeContact={{ name: "Sopheap Meas", role: "Senior Structural Architect", project: "Angkor Studio", initials: "SM" }}
                   placeholder="Type a message to Sopheap…"
                 />
-              </div>
-            )}
-
           </div>
+        )}
         </div>
+        )}
+      </div>
       </div>
     </>
   );

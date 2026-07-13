@@ -4,7 +4,13 @@ import { apiFetch } from "./client";
 export async function signup({ email, password, name, role, phone }) {
   return apiFetch("/api/auth/signup", {
     method: "POST",
-    body: JSON.stringify({ email, password, name, role, phone }),
+    body: JSON.stringify({
+      email,
+      password,
+      full_name: name,
+      phone_number: phone || "",
+      role,
+    }),
   });
 }
 
@@ -16,9 +22,10 @@ export async function login({ email, password }) {
   });
 
   // Save token for subsequent requests
-  if (typeof window !== "undefined") {
-    localStorage.setItem("access_token", data.access_token);
-    localStorage.setItem("user_id", data.user_id);
+  if (typeof window !== "undefined" && data) {
+    const payload = data.data || data;
+    localStorage.setItem("access_token", payload.access_token);
+    localStorage.setItem("user_id", payload.user_id);
   }
 
   return data;

@@ -1,0 +1,294 @@
+@reference "../../styles/globals.css";
+
+/* Page layout structure */
+.pageContainer {
+  @apply min-h-screen bg-brand-cream flex flex-col relative;
+}
+
+@media (min-width: 768px) {
+  .pageContainer {
+    @apply h-screen overflow-hidden flex-row;
+  }
+}
+
+.backButton {
+  @apply absolute top-6 left-6 z-50 flex items-center gap-2 text-sm font-semibold text-brand-dark/80 hover:text-brand-gold bg-white/80 backdrop-blur px-4 py-2 rounded-full border border-brand-dark/5 transition-all shadow-sm hover:shadow;
+}
+
+@media (min-width: 768px) {
+  .backButton {
+    @apply bg-white/90;
+  }
+}
+
+/* Left side panel styling */
+.leftSide {
+  @apply hidden;
+}
+
+@media (min-width: 768px) {
+  .leftSide {
+    @apply flex md:w-[45%] bg-brand-dark relative items-center justify-center overflow-hidden p-12;
+  }
+}
+
+@media (min-width: 1024px) {
+  .leftSide {
+    @apply lg:w-[40%];
+  }
+}
+
+.bgImage {
+  @apply absolute inset-0 bg-cover bg-center bg-no-repeat scale-102 transition-transform duration-10000 ease-out;
+}
+
+.overlay {
+  @apply absolute inset-0 bg-gradient-to-tr from-brand-dark/95 via-brand-dark/85 to-brand-dark/30;
+}
+
+.gridPattern {
+  @apply absolute inset-0 opacity-5 pointer-events-none bg-[radial-gradient(#b38e42_1.5px,transparent_1.5px)] [background-size:32px_32px];
+}
+
+.leftContent {
+  @apply relative z-10 max-w-lg text-white space-y-8;
+}
+
+.logo {
+  @apply h-16 w-auto object-contain;
+}
+
+.titleWrapper {
+  @apply space-y-4;
+}
+
+.leftTitle {
+  @apply text-4xl font-extrabold leading-tight tracking-tight text-white;
+}
+
+@media (min-width: 1024px) {
+  .leftTitle {
+    @apply text-5xl;
+  }
+}
+
+.leftDesc {
+  @apply text-white/80 leading-relaxed text-sm;
+}
+
+.featuresList {
+  @apply pt-6 border-t border-white/10 space-y-4;
+}
+
+.featureItem {
+  @apply flex items-start gap-3;
+}
+
+.featureIcon {
+  @apply h-5 w-5 text-brand-gold shrink-0 mt-0.5;
+}
+
+.featureTitle {
+  @apply font-bold text-white text-sm;
+}
+
+.featureDesc {
+  @apply text-xs text-white/70;
+}
+
+/* Right side form container styling */
+.rightSide {
+  @apply w-full flex flex-col justify-start px-6 py-12 bg-brand-cream relative z-10 overflow-y-auto;
+}
+
+@media (min-width: 640px) {
+  .rightSide {
+    @apply px-12;
+  }
+}
+
+@media (min-width: 768px) {
+  .rightSide {
+    @apply w-[55%];
+  }
+}
+
+@media (min-width: 1024px) {
+  .rightSide {
+    @apply w-[60%] px-16;
+  }
+}
+
+.formWrapper {
+  @apply mx-auto w-full max-w-lg space-y-8 pt-12;
+}
+
+@media (min-width: 768px) {
+  .formWrapper {
+    @apply pt-8;
+  }
+}
+
+@media (min-width: 1024px) {
+  .formWrapper {
+    @apply pt-12;
+  }
+}
+
+.mobileLogoWrapper {
+  @apply flex justify-center pb-2;
+}
+
+@media (min-width: 768px) {
+  .mobileLogoWrapper {
+    @apply hidden;
+  }
+}
+
+.mobileLogo {
+  @apply h-14 w-auto object-contain brightness-90 bg-brand-dark px-4 py-2 rounded-xl;
+}
+
+.formHeader {
+  @apply text-center space-y-2;
+}
+
+.formTitle {
+  @apply text-3xl font-extrabold text-brand-dark tracking-tight;
+}
+
+.formSubtitle {
+  @apply text-sm text-brand-dark/60;
+}
+
+.tabWrapper {
+  @apply bg-brand-cream-dark p-1 rounded-full flex relative border border-brand-dark/5 shadow-inner;
+}
+
+.tabButtonActive {
+  @apply w-1/2 py-2.5 text-sm font-semibold rounded-full transition-all duration-300 bg-brand-gold text-white shadow-md transform scale-101;
+}
+
+.tabButtonInactive {
+  @apply w-1/2 py-2.5 text-sm font-semibold rounded-full transition-all duration-300 text-brand-dark/70 hover:text-brand-dark;
+}
+
+.notificationError {
+  @apply bg-rose-50 border border-rose-200 text-rose-800 p-3.5 rounded-xl flex items-start gap-2.5 text-sm;
+}
+
+.notificationSuccess {
+  @apply bg-emerald-50 border border-emerald-200 text-emerald-800 p-3.5 rounded-xl flex items-start gap-2.5 text-sm;
+}
+
+.form {
+  @apply space-y-6;
+}
+
+.roleLabel {
+  @apply block text-xs font-bold uppercase tracking-wider text-brand-dark/70;
+}
+
+.roleGrid {
+  @apply grid grid-cols-2 gap-4;
+}
+
+.roleCardActive {
+  @apply flex flex-col items-center justify-center p-4 rounded-2xl border-2 text-center transition-all duration-200 hover:shadow-md border-brand-gold bg-brand-gold/5 text-brand-dark;
+}
+
+.roleCardInactive {
+  @apply flex flex-col items-center justify-center p-4 rounded-2xl border-2 text-center transition-all duration-200 hover:shadow-md border-brand-dark/10 bg-white text-brand-dark/60 hover:border-brand-gold/40;
+}
+
+.roleIconActive {
+  @apply p-2.5 rounded-full mb-2 bg-brand-gold text-white;
+}
+
+.roleIconInactive {
+  @apply p-2.5 rounded-full mb-2 bg-brand-cream text-brand-dark/50;
+}
+
+.roleCardTitle {
+  @apply font-bold text-sm;
+}
+
+.roleCardSubtitle {
+  @apply text-[10px] mt-0.5 opacity-80 leading-tight;
+}
+
+.inputContainer {
+  @apply space-y-4;
+}
+
+.inputLabelGroup {
+  @apply flex justify-between items-center;
+}
+
+.inputLabel {
+  @apply block text-xs font-bold text-brand-dark/80;
+}
+
+.inputWrapper {
+  @apply relative;
+}
+
+.inputIcon {
+  @apply absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-brand-dark/40;
+}
+
+.textInput {
+  @apply block w-full pl-10 pr-4 py-3 rounded-xl border border-brand-dark/10 bg-white text-brand-dark placeholder-brand-dark/30 text-sm focus:border-brand-gold focus:ring-1 focus:ring-brand-gold focus:outline-none transition-colors shadow-sm;
+}
+
+.passwordInput {
+  @apply block w-full pl-10 pr-10 py-3 rounded-xl border border-brand-dark/10 bg-white text-brand-dark placeholder-brand-dark/30 text-sm focus:border-brand-gold focus:ring-1 focus:ring-brand-gold focus:outline-none transition-colors shadow-sm;
+}
+
+.passwordToggle {
+  @apply absolute inset-y-0 right-0 pr-3 flex items-center text-brand-dark/30 hover:text-brand-dark/60;
+}
+
+.checkboxContainer {
+  @apply flex items-center;
+}
+
+.checkboxRow {
+  @apply flex items-center gap-2;
+}
+
+.checkboxRowStart {
+  @apply flex items-start gap-2.5;
+}
+
+.checkbox {
+  @apply h-4 w-4 rounded border-brand-dark/20 text-brand-gold focus:ring-brand-gold accent-brand-gold mt-0.5;
+}
+
+.checkboxLabel {
+  @apply text-xs text-brand-dark/75 leading-normal;
+}
+
+.submitButton {
+  @apply w-full flex items-center justify-center rounded-xl bg-brand-gold px-4 py-3 text-sm font-bold text-white shadow-md hover:bg-brand-gold-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-gold transition-all duration-200 hover:shadow-lg disabled:opacity-75 disabled:cursor-not-allowed;
+}
+
+.divider {
+  @apply relative flex py-1 items-center;
+}
+
+.dividerLine {
+  @apply flex-grow border-t border-brand-dark/10;
+}
+
+.dividerText {
+  @apply flex-shrink mx-4 text-xs font-bold text-brand-dark/40 uppercase;
+}
+
+.socialGrid {
+  @apply grid grid-cols-2 gap-4;
+}
+
+.socialButton {
+  @apply flex items-center justify-center py-2.5 px-4 rounded-xl border border-brand-dark/10 bg-white text-sm font-bold text-brand-dark hover:bg-brand-cream-dark transition-all shadow-sm hover:shadow;
+}

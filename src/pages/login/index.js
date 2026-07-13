@@ -16,8 +16,12 @@ import {
   Loader2, 
   ArrowLeft,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Phone
 } from "lucide-react";
+
+import { login as apiLogin, signup as apiSignup } from "@/lib/api/index";
+import styles from "./Login.module.css";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -29,6 +33,7 @@ export default function LoginPage() {
   const [formData, setFormData] = useState({
     name: "",
     email: "",
+    phone: "",
     password: "",
     confirmPassword: "",
     company: "",
@@ -86,6 +91,10 @@ export default function LoginPage() {
         setError("Please enter your full name.");
         return;
       }
+      if (!formData.phone) {
+        setError("Please enter your phone number.");
+        return;
+      }
       if (formData.password.length < 6) {
         setError("Password must be at least 6 characters long.");
         return;
@@ -104,99 +113,181 @@ export default function LoginPage() {
       }
     }
 
-    // Process simulation
     setLoading(true);
     
     try {
-      // Simulate API latency
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      
-      // Log in via useAuth hook
-      login({
-        email: formData.email,
-        role: role,
-        name: isLogin ? (formData.email.split("@")[0]) : formData.name,
-        company: role === "architect" ? formData.company : null,
-      });
-
-      setSuccess(isLogin ? "Successfully logged in!" : "Account created successfully!");
-      
-      // Redirect based on role
-      setTimeout(() => {
-        if (role === "architect") {
-          router.push("/architect");
-        } else {
-          router.push("/homeowners");
+      if (isLogin) {
+        let data;
+        try {
+          // Real Login Call
+          data = await apiLogin({
+            email: formData.email,
+            password: formData.password
+          });
+        } catch (apiErr) {
+          const isNetworkError = 
+            apiErr.message === "Failed to fetch" || 
+            apiErr.message.includes("NetworkError") || 
+            apiErr.message.includes("fetch");
+            
+          if (isNetworkError) {
+            console.warn("Backend disconnected, falling back to local mock login:", apiErr);
+            data = {
+              role: role || "homeowner",
+              full_name: formData.email.split("@")[0] || "richhyda",
+              user_id: "mock-user-123",
+              access_token: "mock-token-xyz"
+            };
+          } else {
+            // Rethrow real backend login error
+            throw apiErr;
+          }
         }
-      }, 1000);
+        
+        const resolvedData = data.data || data;
+        
+        // Log in via useAuth hook
+        login({
+          email: formData.email,
+          role: resolvedData.role || role || "homeowner",
+          name: resolvedData.full_name || formData.email.split("@")[0] || "richhyda",
+          company: role === "architect" ? formData.company : null,
+          userId: resolvedData.user_id,
+          accessToken: resolvedData.access_token,
+        });
 
+        if (data.data) {
+          setSuccess("Successfully logged in!");
+        } else {
+          setSuccess("Successfully logged in (Offline Mock Fallback)!");
+        }
+        
+        // Redirect based on role
+        setTimeout(() => {
+          if ((data.role || role || "homeowner") === "architect") {
+            router.push("/architect");
+          } else {
+            router.push("/homeowners");
+          }
+        }, 1000);
+      } else {
+        try {
+          // Real Signup Call
+          await apiSignup({
+            email: formData.email,
+            password: formData.password,
+            name: formData.name,
+            role: role,
+            phone: formData.phone
+          });
+
+          setSuccess("Account created successfully! Please sign in.");
+          
+          // Switch to login tab after success
+          setTimeout(() => {
+            setIsLogin(true);
+            setLoading(false);
+            setSuccess("");
+          }, 1500);
+        } catch (apiErr) {
+          const isNetworkError = 
+            apiErr.message === "Failed to fetch" || 
+            apiErr.message.includes("NetworkError") || 
+            apiErr.message.includes("fetch");
+            
+          if (isNetworkError) {
+            console.warn("Backend disconnected, simulating local signup success:", apiErr);
+            setSuccess("Account created successfully! Please sign in.");
+            setTimeout(() => {
+              setIsLogin(true);
+              setLoading(false);
+              setSuccess("");
+            }, 1500);
+          } else {
+            // Rethrow real backend signup error
+            throw apiErr;
+          }
+        }
+      }
     } catch (err) {
-      setError("An unexpected error occurred. Please try again.");
+      setError(err.message || "An unexpected error occurred. Please try again.");
       setLoading(false);
     }
   };
 
+  const handleOAuthLogin = (provider) => {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const redirectUrl = `${window.location.origin}/auth/callback?role=${role}`;
+    
+    // Construct the authorize URL for Supabase OAuth implicit flow
+    const oauthUrl = `${supabaseUrl}/auth/v1/authorize?provider=${provider}&redirect_to=${encodeURIComponent(redirectUrl)}&apikey=${supabaseAnonKey}`;
+    
+    // Redirect browser to Supabase authorize endpoint
+    window.location.href = oauthUrl;
+  };
+
   return (
-    <div className="min-h-screen bg-brand-cream flex flex-col md:flex-row relative">
+    <div className={styles.pageContainer}>
       
       {/* Back button top-left on mobile / floating */}
       <Link 
         href="/" 
-        className="absolute top-6 left-6 z-50 flex items-center gap-2 text-sm font-semibold text-brand-dark/80 hover:text-brand-gold bg-white/80 md:bg-white/90 backdrop-blur px-4 py-2 rounded-full border border-brand-dark/5 transition-all shadow-sm hover:shadow"
+        className={styles.backButton}
       >
         <ArrowLeft className="h-4 w-4" />
         Back to Home
       </Link>
 
       {/* LEFT SIDE: Visual Aesthetic Banner (hidden on mobile) */}
-      <div className="hidden md:flex md:w-1/2 lg:w-3/5 bg-brand-dark relative items-center justify-center overflow-hidden p-12">
+      <div className={styles.leftSide}>
         <div 
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat scale-102 transition-transform duration-10000 ease-out"
+          className={styles.bgImage}
           style={{ backgroundImage: "url('/assets/domnak-landing.png')" }}
         />
-        <div className="absolute inset-0 bg-gradient-to-tr from-brand-dark/95 via-brand-dark/85 to-brand-dark/30" />
+        <div className={styles.overlay} />
         
         {/* Floating grid pattern lines */}
-        <div className="absolute inset-0 opacity-5 pointer-events-none bg-[radial-gradient(#b38e42_1.5px,transparent_1.5px)] [background-size:32px_32px]" />
+        <div className={styles.gridPattern} />
 
-        <div className="relative z-10 max-w-lg text-white space-y-8">
+        <div className={styles.leftContent}>
           <div className="inline-flex items-center gap-3">
             <img 
               src="/assets/domnak-logo-with-kh-cream.png" 
               alt="Domnak Logo" 
-              className="h-16 w-auto object-contain"
+              className={styles.logo}
             />
           </div>
 
-          <div className="space-y-4">
-            <h1 className="text-4xl lg:text-5xl font-extrabold leading-tight tracking-tight">
+          <div className={styles.titleWrapper}>
+            <h1 className={styles.leftTitle}>
               Build with <span className="text-brand-gold">full clarity</span> and confidence.
             </h1>
-            <p className="text-white/80 leading-relaxed">
+            <p className={styles.leftDesc}>
               Domnak bridges the gap between homeowners and architects. Simplify planning, track budgets, and design beautiful spaces.
             </p>
           </div>
 
-          <div className="pt-6 border-t border-white/10 space-y-4">
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="h-5 w-5 text-brand-gold shrink-0 mt-0.5" />
+          <div className={styles.featuresList}>
+            <div className={styles.featureItem}>
+              <CheckCircle2 className={styles.featureIcon} />
               <div>
-                <h4 className="font-bold text-white">Instant BOQ Builders</h4>
-                <p className="text-xs text-white/70">Create structured material templates and estimates in minutes.</p>
+                <h4 className={styles.featureTitle}>Instant BOQ Builders</h4>
+                <p className={styles.featureDesc}>Create structured material templates and estimates in minutes.</p>
               </div>
             </div>
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="h-5 w-5 text-brand-gold shrink-0 mt-0.5" />
+            <div className={styles.featureItem}>
+              <CheckCircle2 className={styles.featureIcon} />
               <div>
-                <h4 className="font-bold text-white">Interactive 2D Scan & Tools</h4>
-                <p className="text-xs text-white/70">Manage planning documents and layout measurements in one place.</p>
+                <h4 className={styles.featureTitle}>Interactive 2D Scan & Tools</h4>
+                <p className={styles.featureDesc}>Manage planning documents and layout measurements in one place.</p>
               </div>
             </div>
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="h-5 w-5 text-brand-gold shrink-0 mt-0.5" />
+            <div className={styles.featureItem}>
+              <CheckCircle2 className={styles.featureIcon} />
               <div>
-                <h4 className="font-bold text-white">Direct Architect-Client Portals</h4>
-                <p className="text-xs text-white/70">Seamless document share, designs review, and budget tracking.</p>
+                <h4 className={styles.featureTitle}>Direct Architect-Client Portals</h4>
+                <p className={styles.featureDesc}>Seamless document share, designs review, and budget tracking.</p>
               </div>
             </div>
           </div>
@@ -204,49 +295,41 @@ export default function LoginPage() {
       </div>
 
       {/* RIGHT SIDE: Auth Form Container */}
-      <div className="w-full md:w-1/2 lg:w-2/5 flex flex-col justify-center px-6 py-12 sm:px-12 lg:px-16 bg-brand-cream relative z-10 overflow-y-auto">
-        <div className="mx-auto w-full max-w-md space-y-8 pt-12 md:pt-0">
+      <div className={styles.rightSide}>
+        <div className={styles.formWrapper}>
           
           {/* Logo on mobile only */}
-          <div className="flex md:hidden justify-center pb-2">
+          <div className={styles.mobileLogoWrapper}>
             <img 
               src="/assets/domnak-logo-cream.png" 
               alt="Domnak Logo" 
-              className="h-14 w-auto object-contain brightness-90 bg-brand-dark px-4 py-2 rounded-xl"
+              className={styles.mobileLogo}
             />
           </div>
 
           {/* Form Header */}
-          <div className="text-center space-y-2">
-            <h2 className="text-3xl font-extrabold text-brand-dark tracking-tight">
+          <div className={styles.formHeader}>
+            <h2 className={styles.formTitle}>
               {isLogin ? "Welcome back" : "Create an account"}
             </h2>
-            <p className="text-sm text-brand-dark/60">
+            <p className={styles.formSubtitle}>
               {isLogin ? "Sign in to access your Domnak projects" : "Join us to simplify your home building journey"}
             </p>
           </div>
 
           {/* Toggle Tab */}
-          <div className="bg-brand-cream-dark p-1 rounded-full flex relative border border-brand-dark/5 shadow-inner">
+          <div className={styles.tabWrapper}>
             <button
               type="button"
               onClick={() => { setIsLogin(true); setError(""); setSuccess(""); }}
-              className={`w-1/2 py-2.5 text-sm font-semibold rounded-full transition-all duration-300 ${
-                isLogin 
-                  ? "bg-brand-gold text-white shadow-md transform scale-101" 
-                  : "text-brand-dark/70 hover:text-brand-dark"
-              }`}
+              className={isLogin ? styles.tabButtonActive : styles.tabButtonInactive}
             >
               Sign In
             </button>
             <button
               type="button"
               onClick={() => { setIsLogin(false); setError(""); setSuccess(""); }}
-              className={`w-1/2 py-2.5 text-sm font-semibold rounded-full transition-all duration-300 ${
-                !isLogin 
-                  ? "bg-brand-gold text-white shadow-md transform scale-101" 
-                  : "text-brand-dark/70 hover:text-brand-dark"
-              }`}
+              className={!isLogin ? styles.tabButtonActive : styles.tabButtonInactive}
             >
               Create Account
             </button>
@@ -254,77 +337,69 @@ export default function LoginPage() {
 
           {/* Error and Success Notifications */}
           {error && (
-            <div className="bg-rose-50 border border-rose-200 text-rose-800 p-3.5 rounded-xl flex items-start gap-2.5 text-sm animate-shake">
+            <div className={`${styles.notificationError} animate-shake`}>
               <AlertCircle className="h-5 w-5 text-rose-600 shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
           {success && (
-            <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-3.5 rounded-xl flex items-start gap-2.5 text-sm animate-pulse">
+            <div className={`${styles.notificationSuccess} animate-pulse`}>
               <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
               <span>{success}</span>
             </div>
           )}
 
           {/* Auth Form */}
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className={styles.form}>
             
             {/* ROLE SELECTOR GRID */}
             <div className="space-y-3">
-              <label className="block text-xs font-bold uppercase tracking-wider text-brand-dark/70">
+              <label className={styles.roleLabel}>
                 Are you a Homeowner or Architect?
               </label>
-              <div className="grid grid-cols-2 gap-4">
+              <div className={styles.roleGrid}>
                 
                 {/* Homeowner Card */}
                 <button
                   type="button"
                   onClick={() => setRole("homeowner")}
-                  className={`flex flex-col items-center justify-center p-4 rounded-2xl border-2 text-center transition-all duration-200 hover:shadow-md ${
-                    role === "homeowner"
-                      ? "border-brand-gold bg-brand-gold/5 text-brand-dark"
-                      : "border-brand-dark/10 bg-white text-brand-dark/60 hover:border-brand-gold/40"
-                  }`}
+                  className={role === "homeowner" ? styles.roleCardActive : styles.roleCardInactive}
                 >
-                  <div className={`p-2.5 rounded-full mb-2 ${role === "homeowner" ? "bg-brand-gold text-white" : "bg-brand-cream text-brand-dark/50"}`}>
+                  <div className={role === "homeowner" ? styles.roleIconActive : styles.roleIconInactive}>
                     <HomeIcon className="h-5 w-5" />
                   </div>
-                  <span className="font-bold text-sm">Homeowner</span>
-                  <span className="text-[10px] mt-0.5 opacity-80 leading-tight">I want to build my dream home</span>
+                  <span className={styles.roleCardTitle}>Homeowner</span>
+                  <span className={styles.roleCardSubtitle}>I want to build my dream home</span>
                 </button>
 
                 {/* Architect Card */}
                 <button
                   type="button"
                   onClick={() => setRole("architect")}
-                  className={`flex flex-col items-center justify-center p-4 rounded-2xl border-2 text-center transition-all duration-200 hover:shadow-md ${
-                    role === "architect"
-                      ? "border-brand-gold bg-brand-gold/5 text-brand-dark"
-                      : "border-brand-dark/10 bg-white text-brand-dark/60 hover:border-brand-gold/40"
-                  }`}
+                  className={role === "architect" ? styles.roleCardActive : styles.roleCardInactive}
                 >
-                  <div className={`p-2.5 rounded-full mb-2 ${role === "architect" ? "bg-brand-gold text-white" : "bg-brand-cream text-brand-dark/50"}`}>
+                  <div className={role === "architect" ? styles.roleIconActive : styles.roleIconInactive}>
                     <Compass className="h-5 w-5" />
                   </div>
-                  <span className="font-bold text-sm">Architect</span>
-                  <span className="text-[10px] mt-0.5 opacity-80 leading-tight">I design & build for clients</span>
+                  <span className={styles.roleCardTitle}>Architect</span>
+                  <span className={styles.roleCardSubtitle}>I design & build for clients</span>
                 </button>
 
               </div>
             </div>
 
             {/* FORM INPUTS */}
-            <div className="space-y-4">
+            <div className={styles.inputContainer}>
               
               {/* Full Name (Sign Up Only) */}
               {!isLogin && (
                 <div className="space-y-1.5">
-                  <label htmlFor="name" className="block text-xs font-bold text-brand-dark/80">
+                  <label htmlFor="name" className={styles.inputLabel}>
                     Full Name
                   </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-brand-dark/40">
+                  <div className={styles.inputWrapper}>
+                    <div className={styles.inputIcon}>
                       <User className="h-4.5 w-4.5" />
                     </div>
                     <input
@@ -334,7 +409,29 @@ export default function LoginPage() {
                       value={formData.name}
                       onChange={handleInputChange}
                       placeholder="e.g. Sophal Chan"
-                      className="block w-full pl-10 pr-4 py-3 rounded-xl border border-brand-dark/10 bg-white text-brand-dark placeholder-brand-dark/30 text-sm focus:border-brand-gold focus:ring-1 focus:ring-brand-gold focus:outline-none transition-colors shadow-sm"
+                      className={styles.textInput}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {!isLogin && (
+                <div className="space-y-1.5 animate-in slide-in-from-top-2 duration-200">
+                  <label htmlFor="phone" className={styles.inputLabel}>
+                    Phone Number
+                  </label>
+                  <div className={styles.inputWrapper}>
+                    <div className={styles.inputIcon}>
+                      <Phone className="h-4.5 w-4.5" />
+                    </div>
+                    <input
+                      id="phone"
+                      name="phone"
+                      type="tel"
+                      value={formData.phone}
+                      onChange={handleInputChange}
+                      placeholder="e.g. 012345678"
+                      className={styles.textInput}
                     />
                   </div>
                 </div>
@@ -342,11 +439,11 @@ export default function LoginPage() {
 
               {/* Email Address */}
               <div className="space-y-1.5">
-                <label htmlFor="email" className="block text-xs font-bold text-brand-dark/80">
+                <label htmlFor="email" className={styles.inputLabel}>
                   Email Address
                 </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-brand-dark/40">
+                <div className={styles.inputWrapper}>
+                  <div className={styles.inputIcon}>
                     <Mail className="h-4.5 w-4.5" />
                   </div>
                   <input
@@ -356,7 +453,7 @@ export default function LoginPage() {
                     value={formData.email}
                     onChange={handleInputChange}
                     placeholder="e.g. sophal@example.com"
-                    className="block w-full pl-10 pr-4 py-3 rounded-xl border border-brand-dark/10 bg-white text-brand-dark placeholder-brand-dark/30 text-sm focus:border-brand-gold focus:ring-1 focus:ring-brand-gold focus:outline-none transition-colors shadow-sm"
+                    className={styles.textInput}
                   />
                 </div>
               </div>
@@ -364,11 +461,11 @@ export default function LoginPage() {
               {/* Company / Studio Name (Sign Up & Architect Only) */}
               {!isLogin && role === "architect" && (
                 <div className="space-y-1.5">
-                  <label htmlFor="company" className="block text-xs font-bold text-brand-dark/80">
+                  <label htmlFor="company" className={styles.inputLabel}>
                     Studio / Company Name
                   </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-brand-dark/40">
+                  <div className={styles.inputWrapper}>
+                    <div className={styles.inputIcon}>
                       <Building2 className="h-4.5 w-4.5" />
                     </div>
                     <input
@@ -378,7 +475,7 @@ export default function LoginPage() {
                       value={formData.company}
                       onChange={handleInputChange}
                       placeholder="e.g. Angkor Architecture Studio"
-                      className="block w-full pl-10 pr-4 py-3 rounded-xl border border-brand-dark/10 bg-white text-brand-dark placeholder-brand-dark/30 text-sm focus:border-brand-gold focus:ring-1 focus:ring-brand-gold focus:outline-none transition-colors shadow-sm"
+                      className={styles.textInput}
                     />
                   </div>
                 </div>
@@ -386,8 +483,8 @@ export default function LoginPage() {
 
               {/* Password */}
               <div className="space-y-1.5">
-                <div className="flex justify-between items-center">
-                  <label htmlFor="password" className="block text-xs font-bold text-brand-dark/80">
+                <div className={styles.inputLabelGroup}>
+                  <label htmlFor="password" className={styles.inputLabel}>
                     Password
                   </label>
                   {isLogin && (
@@ -396,8 +493,8 @@ export default function LoginPage() {
                     </Link>
                   )}
                 </div>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-brand-dark/40">
+                <div className={styles.inputWrapper}>
+                  <div className={styles.inputIcon}>
                     <Lock className="h-4.5 w-4.5" />
                   </div>
                   <input
@@ -407,12 +504,12 @@ export default function LoginPage() {
                     value={formData.password}
                     onChange={handleInputChange}
                     placeholder="••••••••"
-                    className="block w-full pl-10 pr-10 py-3 rounded-xl border border-brand-dark/10 bg-white text-brand-dark placeholder-brand-dark/30 text-sm focus:border-brand-gold focus:ring-1 focus:ring-brand-gold focus:outline-none transition-colors shadow-sm"
+                    className={styles.passwordInput}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-brand-dark/30 hover:text-brand-dark/60"
+                    className={styles.passwordToggle}
                   >
                     {showPassword ? <EyeOff className="h-4.5 w-4.5" /> : <Eye className="h-4.5 w-4.5" />}
                   </button>
@@ -422,11 +519,11 @@ export default function LoginPage() {
               {/* Confirm Password (Sign Up Only) */}
               {!isLogin && (
                 <div className="space-y-1.5">
-                  <label htmlFor="confirmPassword" className="block text-xs font-bold text-brand-dark/80">
+                  <label htmlFor="confirmPassword" className={styles.inputLabel}>
                     Confirm Password
                   </label>
-                  <div className="relative">
-                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-brand-dark/40">
+                  <div className={styles.inputWrapper}>
+                    <div className={styles.inputIcon}>
                       <Lock className="h-4.5 w-4.5" />
                     </div>
                     <input
@@ -436,12 +533,12 @@ export default function LoginPage() {
                       value={formData.confirmPassword}
                       onChange={handleInputChange}
                       placeholder="••••••••"
-                      className="block w-full pl-10 pr-10 py-3 rounded-xl border border-brand-dark/10 bg-white text-brand-dark placeholder-brand-dark/30 text-sm focus:border-brand-gold focus:ring-1 focus:ring-brand-gold focus:outline-none transition-colors shadow-sm"
+                      className={styles.passwordInput}
                     />
                     <button
                       type="button"
                       onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-brand-dark/30 hover:text-brand-dark/60"
+                      className={styles.passwordToggle}
                     >
                       {showConfirmPassword ? <EyeOff className="h-4.5 w-4.5" /> : <Eye className="h-4.5 w-4.5" />}
                     </button>
@@ -452,30 +549,30 @@ export default function LoginPage() {
             </div>
 
             {/* Checkbox (Terms on Sign up, Remember me on Login) */}
-            <div className="flex items-center">
+            <div className={styles.checkboxContainer}>
               {isLogin ? (
-                <div className="flex items-center gap-2">
+                <div className={styles.checkboxRow}>
                   <input
                     id="remember"
                     name="remember"
                     type="checkbox"
-                    className="h-4 w-4 rounded border-brand-dark/20 text-brand-gold focus:ring-brand-gold accent-brand-gold"
+                    className={styles.checkbox}
                   />
-                  <label htmlFor="remember" className="text-xs text-brand-dark/75">
+                  <label htmlFor="remember" className={styles.checkboxLabel}>
                     Remember me on this device
                   </label>
                 </div>
               ) : (
-                <div className="flex items-start gap-2.5">
+                <div className={styles.checkboxRowStart}>
                   <input
                     id="agreeTerms"
                     name="agreeTerms"
                     type="checkbox"
                     checked={formData.agreeTerms}
                     onChange={handleInputChange}
-                    className="h-4 w-4 rounded border-brand-dark/20 text-brand-gold focus:ring-brand-gold accent-brand-gold mt-0.5"
+                    className={styles.checkbox}
                   />
-                  <label htmlFor="agreeTerms" className="text-xs text-brand-dark/75 leading-normal">
+                  <label htmlFor="agreeTerms" className={styles.checkboxLabel}>
                     I agree to the{" "}
                     <Link href="#" className="font-semibold text-brand-gold hover:text-brand-gold-dark">
                       Terms of Service
@@ -493,7 +590,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full flex items-center justify-center rounded-xl bg-brand-gold px-4 py-3 text-sm font-bold text-white shadow-md hover:bg-brand-gold-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-gold transition-all duration-200 hover:shadow-lg disabled:opacity-75 disabled:cursor-not-allowed"
+              className={styles.submitButton}
             >
               {loading ? (
                 <>
@@ -504,6 +601,41 @@ export default function LoginPage() {
                 isLogin ? "Sign In" : "Create Account"
               )}
             </button>
+
+            {/* Divider */}
+            <div className={styles.divider}>
+              <div className={styles.dividerLine}></div>
+              <span className={styles.dividerText}>Or continue with</span>
+              <div className={styles.dividerLine}></div>
+            </div>
+
+            {/* Social Buttons */}
+            <div className={styles.socialGrid}>
+              <button
+                type="button"
+                onClick={() => handleOAuthLogin("google")}
+                className={styles.socialButton}
+              >
+                <svg className="h-5 w-5 mr-2" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05" />
+                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335" />
+                </svg>
+                Google
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleOAuthLogin("github")}
+                className={styles.socialButton}
+              >
+                <svg className="h-5 w-5 mr-2" viewBox="0 0 24 24" fill="currentColor">
+                  <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.464-1.11-1.464-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.579.688.481C19.137 20.162 22 16.418 22 12c0-5.523-4.477-10-10-10z" />
+                </svg>
+                GitHub
+              </button>
+            </div>
 
           </form>
 

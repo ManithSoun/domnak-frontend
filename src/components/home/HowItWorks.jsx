@@ -1,6 +1,10 @@
 import { Upload, FileText, ShoppingCart, ClipboardList, Share2 } from "lucide-react";
+import { useRouter } from "next/router";
+import { useAuth } from "../../../router/useAuth";
 
 export default function HowItWorks() {
+  const router = useRouter();
+  const { user } = useAuth();
   const homeownersSteps = [
     {
       step: "Step 1",
@@ -45,7 +49,7 @@ export default function HowItWorks() {
 
   return (
     <section id="how-it-works" className="bg-background py-16 sm:py-24 overflow-hidden relative">
-      <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 relative z-10">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 relative z-10">
         
         {/* Section Heading */}
         <div className="relative pb-4 mb-16 max-w-max">
@@ -61,23 +65,23 @@ export default function HowItWorks() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-16 md:gap-12 lg:gap-16">
           
           {/* Column: Homeowners */}
-          <div className="space-y-6">
+          <div className="space-y-6 flex flex-col">
             <h3 className="text-2xl sm:text-3xl font-extrabold text-brand-dark italic">
               Homeowners
             </h3>
             {/* Parent container for shadow offset effect */}
-            <div className="relative pt-3 pl-3">
+            <div className="relative pt-4 pl-4 flex-1 flex flex-col">
               {/* Offset Gold Shadow Card Behind */}
-              <div className="absolute -inset-0 bg-[#b38e42] rounded-2xl -translate-x-3 translate-y-3 z-0" />
+              <div className="absolute inset-0 bg-[#b38e42] rounded-3xl z-0 shadow-xl shadow-[#1e1c18]/10" />
               
               {/* Front White/Cream Card */}
-              <div className="relative bg-[#fffdf9] rounded-2xl border border-[#b38e42]/30 overflow-hidden divide-y divide-[#b38e42]/15 z-10 flex flex-col">
+              <div className="relative bg-[#fffdf9] rounded-3xl border border-[#b38e42]/30 overflow-hidden divide-y divide-[#b38e42]/15 z-10 flex flex-col flex-1 shadow-2xl shadow-[#1e1c18]/15">
                 {homeownersSteps.map((item, idx) => {
                   const IconComponent = item.icon;
                   return (
                     <div
                       key={idx}
-                      className="p-6 sm:p-8 space-y-4 flex flex-col justify-between"
+                      className="p-6 sm:p-8 space-y-4 flex flex-col justify-between flex-1"
                     >
                       <div className="space-y-3">
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-[#b38e42]/10 px-3 py-1 text-xs font-bold text-[#80632b] uppercase tracking-wider">
@@ -93,24 +97,30 @@ export default function HowItWorks() {
                       </div>
                       <div className="pt-1">
                         {idx === 0 ? (
-                          <div className="relative">
-                            <input
-                              type="file"
-                              id="step-homeowner-upload"
-                              className="hidden"
-                              onChange={(e) => {
-                                if (e.target.files?.[0]) {
-                                  alert(`Selected quote: ${e.target.files[0].name}`);
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (user) {
+                                if (user.role === "architect") {
+                                  const proceed = window.confirm(
+                                    "You are currently logged in as an Architect. Would you like to log out and create a Homeowner account?"
+                                  );
+                                  if (proceed) {
+                                    localStorage.removeItem("domnak_session");
+                                    window.dispatchEvent(new Event("domnak_login"));
+                                    router.push("/login?role=homeowner");
+                                  }
+                                } else {
+                                  router.push("/homeowners");
                                 }
-                              }}
-                            />
-                            <label
-                              htmlFor="step-homeowner-upload"
-                              className="inline-flex items-center gap-1.5 rounded-full bg-[#b38e42] hover:bg-[#80632b] text-white px-4 py-2 text-xs font-bold transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md"
-                            >
-                              Upload Quote
-                            </label>
-                          </div>
+                              } else {
+                                router.push("/login?role=homeowner");
+                              }
+                            }}
+                            className="inline-flex items-center gap-1.5 rounded-full bg-[#b38e42] hover:bg-[#80632b] text-white px-4 py-2 text-xs font-bold transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md border-0"
+                          >
+                            Upload Quote
+                          </button>
                         ) : idx === 1 ? (
                           <a
                             href="#features"
@@ -135,23 +145,23 @@ export default function HowItWorks() {
           </div>
 
           {/* Column: Architects */}
-          <div className="space-y-6">
+          <div className="space-y-6 flex flex-col">
             <h3 className="text-2xl sm:text-3xl font-extrabold text-brand-dark italic">
               Architects
             </h3>
             {/* Parent container for shadow offset effect */}
-            <div className="relative pt-3 pl-3">
+            <div className="relative pt-4 pl-4 flex-1 flex flex-col">
               {/* Offset Gold Shadow Card Behind */}
-              <div className="absolute -inset-0 bg-[#b38e42] rounded-2xl -translate-x-3 translate-y-3 z-0" />
+              <div className="absolute inset-0 bg-[#b38e42] rounded-3xl z-0 shadow-xl shadow-[#1e1c18]/10" />
               
               {/* Front White/Cream Card */}
-              <div className="relative bg-[#fffdf9] rounded-2xl border border-[#b38e42]/30 overflow-hidden divide-y divide-[#b38e42]/15 z-10 flex flex-col">
+              <div className="relative bg-[#fffdf9] rounded-3xl border border-[#b38e42]/30 overflow-hidden divide-y divide-[#b38e42]/15 z-10 flex flex-col flex-1 shadow-2xl shadow-[#1e1c18]/15">
                 {architectsSteps.map((item, idx) => {
                   const IconComponent = item.icon;
                   return (
                     <div
                       key={idx}
-                      className="p-6 sm:p-8 space-y-4 flex flex-col justify-between"
+                      className="p-6 sm:p-8 space-y-4 flex flex-col justify-between flex-1"
                     >
                       <div className="space-y-3">
                         <span className="inline-flex items-center gap-1.5 rounded-full bg-[#b38e42]/10 px-3 py-1 text-xs font-bold text-[#80632b] uppercase tracking-wider">
@@ -167,24 +177,30 @@ export default function HowItWorks() {
                       </div>
                       <div className="pt-1">
                         {idx === 0 ? (
-                          <div className="relative">
-                            <input
-                              type="file"
-                              id="step-architect-upload"
-                              className="hidden"
-                              onChange={(e) => {
-                                if (e.target.files?.[0]) {
-                                  alert(`Selected floor plan: ${e.target.files[0].name}`);
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (user) {
+                                if (user.role === "homeowner") {
+                                  const proceed = window.confirm(
+                                    "You are currently logged in as a Homeowner. Would you like to log out and create an Architect account?"
+                                  );
+                                  if (proceed) {
+                                    localStorage.removeItem("domnak_session");
+                                    window.dispatchEvent(new Event("domnak_login"));
+                                    router.push("/login?role=architect");
+                                  }
+                                } else {
+                                  router.push("/architect");
                                 }
-                              }}
-                            />
-                            <label
-                              htmlFor="step-architect-upload"
-                              className="inline-flex items-center gap-1.5 rounded-full bg-[#b38e42] hover:bg-[#80632b] text-white px-4 py-2 text-xs font-bold transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md"
-                            >
-                              Upload Floor Plan
-                            </label>
-                          </div>
+                              } else {
+                                router.push("/login?role=architect");
+                              }
+                            }}
+                            className="inline-flex items-center gap-1.5 rounded-full bg-[#b38e42] hover:bg-[#80632b] text-white px-4 py-2 text-xs font-bold transition-all duration-200 cursor-pointer shadow-sm hover:shadow-md border-0"
+                          >
+                            Upload Floor Plan
+                          </button>
                         ) : idx === 1 ? (
                           <a
                             href="#features"
