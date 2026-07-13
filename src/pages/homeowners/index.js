@@ -6,6 +6,7 @@ import Footer from "@/components/layout/Footer";
 import ChatUI from "@/components/ChatUI";
 import CostHelperChatbot from "@/components/chatbot/CostHelperChatbot";
 import ManualQuoteForm from "@/components/homeowners/ManualQuoteForm";
+import SupplierDirectory from "@/components/suppliers/SupplierDirectory";
 import { useAuth } from "../../../router/useAuth";
 import { 
   getQuotes, 
@@ -2299,29 +2300,7 @@ export default function HomeownersPage() {
             {/* ──── SUPPLIERS TAB ─────────────────────────────────────── */}
             {sidebarTab === "suppliers" && (
               <div className="space-y-6 animate-in fade-in duration-300">
-                <div className="bg-[#1E1C18] text-white rounded-3xl p-8 lg:p-10 shadow-xl relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-brand-gold/10 rounded-bl-full" />
-                  <div className="relative z-10 space-y-4 max-w-xl">
-                    <div className="inline-flex items-center gap-2 bg-brand-gold/20 text-brand-gold border border-brand-gold/30 rounded-full px-3 py-1 text-xs font-bold"><Store className="h-3.5 w-3.5" /> Supplier Directory</div>
-                    <h2 className="text-2xl font-black tracking-tight">Browse Verified Suppliers Near You</h2>
-                    <p className="text-sm text-white/65 leading-relaxed">Find trusted building material suppliers, hardware stores, and construction service providers in your area. All listings are verified by the DomNak team.</p>
-                    <Link href="/supplier" className="inline-flex items-center gap-2 bg-brand-gold hover:bg-brand-gold-dark text-white font-black text-sm rounded-xl px-5 py-3 shadow-md hover:shadow-lg transition-all cursor-pointer">Open Supplier Directory <ArrowRight className="h-4 w-4" /></Link>
-                  </div>
-                </div>
-                <div className={styles.suppliersGrid}>
-                  {suppliersList.map((s,i) => {
-                    const name = s?.name || "Unknown Supplier";
-                    return (
-                      <div key={i} className="bg-white border border-[#1E1C18]/5 rounded-2xl p-5 shadow-sm hover:shadow-md transition-shadow">
-                        <div className="flex justify-between items-start mb-3"><div className="h-10 w-10 bg-brand-gold/10 rounded-xl flex items-center justify-center text-brand-gold font-black text-base border border-brand-gold/20">{name.charAt(0)}</div><span className="text-[10px] font-extrabold text-brand-gold bg-brand-gold/10 border border-brand-gold/20 rounded-full px-2.5 py-1">{s?.badge || "Verified"}</span></div>
-                        <h4 className="font-black text-sm text-[#1E1C18] leading-tight">{name}</h4>
-                        <p className="text-xs text-[#1E1C18]/50 font-semibold mt-1">{s?.category || "Building Materials"}</p>
-                        <div className="flex items-center gap-1.5 mt-3 text-[10px] text-[#1E1C18]/40 font-semibold"><MapPin className="h-3 w-3 text-brand-gold" />{s?.location || "Phnom Penh"}</div>
-                        <button onClick={() => showToast(`Contacting ${name}...`)} className="mt-4 w-full text-xs font-black text-brand-gold bg-brand-gold/8 hover:bg-brand-gold/15 border border-brand-gold/20 rounded-xl py-2.5 transition-all cursor-pointer">Contact Supplier</button>
-                      </div>
-                    );
-                  })}
-                </div>
+                <SupplierDirectory showHeader={true} onShowToast={showToast} />
               </div>
             )}
 
