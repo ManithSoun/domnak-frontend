@@ -52,11 +52,14 @@ export default function SupplierDirectory({ showHeader = true, onShowToast = nul
   const handleContactSupplier = async (supplier) => {
     setActiveContactSupplier(supplier);
     
-    // Call database click tracking endpoint asynchronously
-    try {
-      await trackSupplierClick(supplier.id);
-    } catch (err) {
-      console.warn("Click tracking error:", err);
+    // Call database click tracking endpoint asynchronously ONLY if logged in
+    const token = localStorage.getItem("access_token");
+    if (token) {
+      try {
+        await trackSupplierClick(supplier.id);
+      } catch (err) {
+        console.warn("Click tracking error:", err);
+      }
     }
 
     if (onShowToast) {
