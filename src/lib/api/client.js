@@ -168,38 +168,40 @@ async function apiFetch(endpoint, options = {}) {
       }
     }
     
-    // Try to refresh the token first
-    console.log("[apiFetch] Got 401, attempting token refresh...");
-    const newToken = await refreshAccessToken();
-    
-    if (newToken) {
-      // Retry the original request with new token
-      console.log("[apiFetch] Token refreshed, retrying request...");
-      const retryRes = await fetch(`${API_URL}${endpoint}`, {
-        ...options,
-        headers: {
-          ...options.headers,
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${newToken}`,
-        },
-      });
+    if (res.status === 401 && !endpoint.includes("/api/auth/login") && !endpoint.includes("/api/auth/signup")) {
+      // Try to refresh the token first
+      console.log("[apiFetch] Got 401, attempting token refresh...");
+      const newToken = await refreshAccessToken();
       
-      if (retryRes.ok) {
-        return retryRes.json();
+      if (newToken) {
+        // Retry the original request with new token
+        console.log("[apiFetch] Token refreshed, retrying request...");
+        const retryRes = await fetch(`${API_URL}${endpoint}`, {
+          ...options,
+          headers: {
+            ...options.headers,
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${newToken}`,
+          },
+        });
+        
+        if (retryRes.ok) {
+          return retryRes.json();
+        }
+        // If retry also fails, proceed to logout
+        console.log("[apiFetch] Retry failed with status:", retryRes.status);
       }
-      // If retry also fails, proceed to logout
-      console.log("[apiFetch] Retry failed with status:", retryRes.status);
-    }
-    
-    // Either refresh failed or retry failed - logout
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("access_token");
-      localStorage.removeItem("refresh_token");
-      localStorage.removeItem("user_id");
-      localStorage.removeItem("domnak_session");
-      window.dispatchEvent(new Event("domnak_login"));
-      window.location.href = "/login?error=Session expired. Please log in again.";
-      return;
+      
+      // Either refresh failed or retry failed - logout
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("access_token");
+        localStorage.removeItem("refresh_token");
+        localStorage.removeItem("user_id");
+        localStorage.removeItem("domnak_session");
+        window.dispatchEvent(new Event("domnak_login"));
+        window.location.href = "/login?error=Session expired. Please log in again.";
+        return;
+      }
     }
     
     const errorMsg = getFriendlyErrorMessage(

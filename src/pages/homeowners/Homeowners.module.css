@@ -7,7 +7,31 @@
 
 /* Sidebar styling */
 .sidebar {
-  @apply w-[230px] flex-shrink-0 bg-[#A68A3D] flex flex-col h-full border-r border-[#8d7330] shadow-2xl relative z-20;
+  width: 230px;
+  background-color: #A68A3D;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border-right: 1px solid #8d7330;
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 100;
+  transform: translateX(-100%);
+  transition: transform 0.3s ease-in-out;
+  flex-shrink: 0;
+}
+
+.sidebarOpen {
+  transform: translateX(0);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(30, 28, 24, 0.5);
+  z-index: 90;
 }
 
 .topDecoration {

@@ -619,7 +619,25 @@ export default function HomeownersPage() {
         seen.add(n.id);
         return true;
       });
-      setNotifications(unique);
+      
+      setNotifications(prevNotifications => {
+        // Detect new unread notifications (e.g. connections or messages)
+        if (prevNotifications && prevNotifications.length > 0) {
+          const prevIds = new Set(prevNotifications.map(n => n.id));
+          const newUnread = unique.filter(n => !n.read && !prevIds.has(n.id));
+          
+          if (newUnread.length > 0) {
+            // Trigger toast notifications after current state update completes
+            setTimeout(() => {
+              newUnread.forEach(n => {
+                showToast(n.message || n.title || "New notification");
+              });
+            }, 0);
+          }
+        }
+        return unique;
+      });
+      
       setUnreadCount(unique.filter(n => !n.read).length);
     } catch (error) {
       console.error("Failed to load notifications", error);
@@ -743,6 +761,10 @@ export default function HomeownersPage() {
   useEffect(() => {
     if (user) {
       loadNotifications();
+      const interval = setInterval(() => {
+        loadNotifications();
+      }, 10000);
+      return () => clearInterval(interval);
     }
   }, [user?.id, user?.userId]);
 
@@ -1473,8 +1495,19 @@ export default function HomeownersPage() {
       <div className={styles.pageLayoutContainer}>
 
         {/* ── Sidebar ──────────────────────────────────────────────────── */}
-        <aside className={styles.sidebar}>
+        <aside className={`${styles.sidebar} ${dashboardSidebarOpen ? styles.sidebarOpen : ""}`}>
           
+          {/* Mobile Close Button */}
+          <div className="flex items-center justify-between px-6 pt-6">
+            <span className="text-white font-black text-lg tracking-tight">DomNak</span>
+            <button
+              onClick={() => setDashboardSidebarOpen(false)}
+              className="p-1.5 text-white/60 hover:text-white rounded-xl hover:bg-white/10 transition-all duration-200 cursor-pointer"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
           {/* Subtle top decoration */}
           <div className={styles.topDecoration} />
 
@@ -1500,7 +1533,10 @@ export default function HomeownersPage() {
               ].map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
-                onClick={() => setSidebarTab(id)}
+                onClick={() => {
+                  setSidebarTab(id);
+                  setDashboardSidebarOpen(false);
+                }}
                 className={`${sidebarTab === id ? styles.navButtonActive : styles.navButton} group`}
               >
                 {id === "chat" ? (
@@ -1528,10 +1564,10 @@ export default function HomeownersPage() {
           <div className={styles.userChipWrapper}>
             <div className="flex items-center gap-3 min-w-0">
               <div className={styles.avatar}>
-                {(user?.name || "H").charAt(0).toUpperCase()}
+                {(user?.full_name || "H").charAt(0).toUpperCase()}
               </div>
               <div className={styles.userInfo}>
-                <p className={styles.userName}>{user?.name || "Homeowner"}</p>
+                <p className={styles.userName}>{user?.full_name || "Homeowner"}</p>
                 <p className={styles.userRole}>Homeowner</p>
               </div>
             </div>
@@ -1555,6 +1591,14 @@ export default function HomeownersPage() {
           </div>
         </aside>
 
+        {/* Backdrop overlay for sidebar */}
+        {dashboardSidebarOpen && (
+          <div 
+            className={styles.backdrop}
+            onClick={() => setDashboardSidebarOpen(false)}
+          />
+        )}
+
         {/* ── Scrollable content area ───────────────────────────────── */}
         <div className={styles.scrollableContent}>
 
@@ -1570,6 +1614,13 @@ export default function HomeownersPage() {
           {sidebarTab !== "chatbot" && (
             <div className={styles.headerBar}>
               <div className="flex items-center space-x-3">
+                <button
+                  type="button"
+                  className="p-2 -ml-2 text-[#1E1C18]/60 hover:text-brand-gold rounded-xl transition-colors duration-200 cursor-pointer"
+                  onClick={() => setDashboardSidebarOpen(true)}
+                >
+                  <Menu className="h-6 w-6" />
+                </button>
                 {sidebarTab === "home" && auditHistory.length === 0 ? (
                   <div className="flex items-center h-16">
                     <img 
@@ -1637,7 +1688,7 @@ export default function HomeownersPage() {
                                 if (!notif.read) {
                                   handleMarkNotificationRead(notif.id);
                                 }
-                                if (notif.type === "connection_request") {
+                                if (notif.type === "connection_request" || notif.type === "message") {
                                   setSidebarTab("chat");
                                 }
                                 setShowNotifications(false);
@@ -1710,7 +1761,7 @@ export default function HomeownersPage() {
                       <h2 className={styles.welcomeText}>
                         Welcome to Homeowner Hub
                         <br />
-                        <span className={styles.welcomeName}>{capitalizeName(user?.name || "Jonh Doe")}</span>
+                        <span className={styles.welcomeName}>{capitalizeName(user?.full_name || "Jonh Doe")}</span>
                       </h2>
                       <div className={styles.welcomeActions}>
                         <button 
@@ -1734,7 +1785,7 @@ export default function HomeownersPage() {
                   <div className="space-y-6">
                     <div className={styles.dashboardGreetingSection}>
                       <span className={styles.welcomeBackText}>Welcome back</span>
-                      <h2 className={styles.goodMorningTitle}>Good Morning, {user?.name || "Jonh Doe"}</h2>
+                      <h2 className={styles.goodMorningTitle}>Good Morning, {user?.full_name || "Jonh Doe"}</h2>
                     </div>
 
                     {/* Summary Analytics Row */}
