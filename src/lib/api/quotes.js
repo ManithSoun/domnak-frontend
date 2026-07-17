@@ -41,3 +41,22 @@ export async function updateQuote(quoteId, { contractorName, totalAmount, projec
     }),
   });
 }
+
+// POST /api/quotes/send - Send a quote to a homeowner client
+export async function sendQuoteToClient({ receiverId, boqData, fileName, area, total }) {
+  return apiFetch("/api/quotes/send", {
+    method: "POST",
+    body: JSON.stringify({
+      receiver_id: receiverId,
+      boq_data: boqData,
+      file_name: fileName,
+      area: area,
+      total: total,
+    }),
+  });
+}
+
+// GET /api/quotes/received/ - Get quotes received by homeowner
+export async function getReceivedQuotes() {
+  return apiFetch("/api/quotes/received/");
+}

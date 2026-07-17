@@ -4,6 +4,10 @@ import Link from "next/link";
 import ChatUI from "@/components/ChatUI";
 import CostHelperChatbot from "@/components/chatbot/CostHelperChatbot";
 import { useAuth } from "../../../router/useAuth";
+import { getConversation, sendMessage, deleteMessage } from "@/lib/api/messages";
+import { listConnections, listContacts, sendInvite, acceptInvite, rejectInvite, acceptInviteByToken } from "@/lib/api/connection";
+import { sendQuoteToClient } from "@/lib/api/quotes";
+import { updateMe, getMe } from "@/lib/api/auth";
 
 import { jsPDF } from "jspdf";
 
@@ -61,17 +65,33 @@ import {
   Bath,
   Flower,
   Bot,
-  Menu
+  Menu,
+  Loader2
 } from "lucide-react";
 
 // ── Floor plan API helpers (inline to avoid module-resolution issues) ──────
 const _API = process.env.NEXT_PUBLIC_API_URL || "";
 function _authFetch(path, opts = {}) {
-  const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-  const validToken = token && token !== "mock-token-xyz" && token !== "undefined" && token !== "null" ? token : null;
+  if (typeof window === "undefined") return Promise.resolve({});
+  // Use centralized getToken which validates JWT format
+  const token = (() => {
+    const t = localStorage.getItem("access_token");
+    if (!t) return null;
+    const parts = t.split(".");
+    if (parts.length !== 3 || parts.some(p => !p)) {
+      console.error("[_authFetch] Token is malformed, clearing");
+      localStorage.removeItem("access_token");
+      localStorage.removeItem("refresh_token");
+      localStorage.removeItem("user_id");
+      window.dispatchEvent(new Event("domnak_login"));
+      return null;
+    }
+    if (["mock-token-xyz", "undefined", "null"].includes(t)) return null;
+    return t;
+  })();
   return fetch(`${_API}${path}`, {
     ...opts,
-    headers: { "Content-Type": "application/json", ...(validToken && { Authorization: `Bearer ${validToken}` }), ...opts.headers },
+    headers: { "Content-Type": "application/json", ...(token && { Authorization: `Bearer ${token}` }), ...opts.headers },
   }).then((r) => r.json());
 }
 function getFloorPlans() { return _authFetch("/api/floor-plan/"); }
@@ -79,7 +99,7 @@ function deleteFloorPlan(id) { return _authFetch(`/api/floor-plan/${id}`, { meth
 // ────────────────────────────────────────────────────────────────────────────
 
 export default function ArchitectPage() {
-  const { user, logout } = useAuth();
+  const { user, logout, login } = useAuth();
 
   const capitalizeName = (name) => {
     if (!name) return "";
@@ -93,9 +113,22 @@ export default function ArchitectPage() {
   const [activeTab, setActiveTab] = useState("overview"); // "overview" | "floorplan" | "boq" | "files" | "messages" | "settings"
   const [dashboardSidebarOpen, setDashboardSidebarOpen] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState("");
+  const [selectedConversation, setSelectedConversation] = useState([]);
+  const [chatContacts, setChatContacts] = useState([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [isChatSending, setIsChatSending] = useState(false);
   const [customNotification, setCustomNotification] = useState(null);
   const [showAddClientModal, setShowAddClientModal] = useState(false);
   const [newClientData, setNewClientData] = useState({ name: "", project: "", location: "", budget: 150000 });
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteMessage, setInviteMessage] = useState("");
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteError, setInviteError] = useState("");
+  const [inviteSuccess, setInviteSuccess] = useState("");
+  const [pendingInvites, setPendingInvites] = useState([]);
+  const [receivedInvites, setReceivedInvites] = useState([]);
+  const [connectionLoading, setConnectionLoading] = useState(false);
+  const [connectionMessage, setConnectionMessage] = useState("");
 
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -133,6 +166,13 @@ export default function ArchitectPage() {
 
   const [newMaterial, setNewMaterial] = useState({ name: "", unit: "bags", rate: 0, quantity: 0, markup: 15 });
 
+  // Studio profile settings state
+  const [studioCompany, setStudioCompany] = useState("");
+  const [studioName, setStudioName] = useState("");
+  const [studioSpecialization, setStudioSpecialization] = useState("Residential Villas & Penthouse Suites");
+  const [buildSiteRange, setBuildSiteRange] = useState("Phnom Penh & Siem Reap Provinces");
+  const [isSavingStudio, setIsSavingStudio] = useState(false);
+
   // Shared design documents list
   const [sharedFiles, setSharedFiles] = useState([
     { id: "f1", name: "Angkor_PremiumVilla_LayoutPlan_V3.pdf", type: "PDF Plan", size: "8.5 MB", date: "Shared 2 days ago" },
@@ -148,12 +188,10 @@ export default function ArchitectPage() {
   });
 
   const [chatInput, setChatInput] = useState("");
-  const [isClientTyping, setIsClientTyping] = useState(false);
   const chatBottomRef = useRef(null);
 
   // ── AI Chatbot state (Shared Files tab) ──────────────────────────────────
   const [aiBotMessages, setAiBotMessages] = useState([]);
-  const [isAiBotTyping, setIsAiBotTyping] = useState(false);
 
   // ── Plan Analyzer state ──────────────────────────────────────────────────
   const [scanFile, setScanFile] = useState(null);         // { name, type, size, previewUrl }
@@ -185,7 +223,7 @@ export default function ArchitectPage() {
       });
     }
   }, [scanRooms, scanResults]);
-  const [scanQuoteClientId, setScanQuoteClientId] = useState("c1");
+  const [scanQuoteClientId, setScanQuoteClientId] = useState("");
   const [showQuoteModal, setShowQuoteModal] = useState(false);
   const [sentQuotesList, setSentQuotesList] = useState([]);
   const [showExportDropdown, setShowExportDropdown] = useState(false);
@@ -256,8 +294,15 @@ export default function ArchitectPage() {
         );
 
         const merged = [...backendItems, ...localOnly];
-        setSentQuotesList(merged);
-        localStorage.setItem("domnak_sent_quotes", JSON.stringify(merged));
+        // Deduplicate by id
+        const seen = new Set();
+        const unique = merged.filter(q => {
+          if (seen.has(q.id)) return false;
+          seen.add(q.id);
+          return true;
+        });
+        setSentQuotesList(unique);
+        localStorage.setItem("domnak_sent_quotes", JSON.stringify(unique));
       })
       .catch((err) => console.log("Offline – using localStorage for saved history:", err));
   };
@@ -272,7 +317,115 @@ export default function ArchitectPage() {
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [clientChats, isClientTyping]);
+  }, [clientChats]);
+
+  // Load connections/invites on mount
+  useEffect(() => {
+    const loadConnections = async () => {
+      try {
+        const res = await listConnections();
+        if (res?.data) {
+          // Load pending invites (sent by me)
+          const sent = (res.data.pending_invites || []).filter(i => i.direction === "sent");
+          setPendingInvites(sent);
+          
+          // Load received invites (from homeowners sharing their link)
+          const received = (res.data.pending_invites || []).filter(i => i.direction === "received");
+          setReceivedInvites(received);
+          
+          // Load accepted contacts as clients
+          const contacts = res.data.contacts || [];
+          const clientsFromApi = contacts.map(c => ({
+            id: c.user_id,
+            name: c.user_name || c.user_email?.split("@")[0] || "Client",
+            project: "Project",
+            location: "Phnom Penh",
+            budget: 150000,
+            status: "Active",
+            dateConnected: c.connected_at ? new Date(c.connected_at).toLocaleDateString() : "Connected",
+            email: c.user_email
+          }));
+          if (clientsFromApi.length > 0) {
+            setClients(clientsFromApi);
+            setScanQuoteClientId(clientsFromApi[0].id);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load connections:", err);
+      }
+    };
+    if (user?.id || user?.userId) {
+      loadConnections();
+    }
+  }, [user?.id, user?.userId]);
+
+  // Show connection message as toast
+  useEffect(() => {
+    if (connectionMessage) {
+      const timer = setTimeout(() => setConnectionMessage(""), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [connectionMessage]);
+
+  // Check for invite token in URL (architect accessed share link)
+  useEffect(() => {
+    const checkInviteToken = async () => {
+      if (typeof window === "undefined") return;
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get("connect");
+      if (token) {
+        setConnectionLoading(true);
+        try {
+          const res = await acceptInviteByToken(token);
+          if (res?.success) {
+            setConnectionMessage(res.message || "Connected!");
+            // Reload connections
+            const updated = await listConnections();
+            if (updated?.data) {
+              const contacts = updated.data.contacts || [];
+              const clientsFromApi = contacts.map(c => ({
+                id: c.user_id,
+                name: c.user_name || c.user_email?.split("@")[0] || "Client",
+                project: "Project",
+                location: "Phnom Penh",
+                budget: 150000,
+                status: "Active",
+                dateConnected: c.connected_at ? new Date(c.connected_at).toLocaleDateString() : "Connected",
+                email: c.user_email
+              }));
+              setClients(clientsFromApi);
+              setScanQuoteClientId(clientsFromApi[0]?.id || "");
+              setReceivedInvites([]);
+            }
+          } else {
+            setConnectionMessage(res?.message || "Failed to connect.");
+          }
+        } catch (err) {
+          setConnectionMessage("Failed to accept connection.");
+        } finally {
+          setConnectionLoading(false);
+          window.history.replaceState({}, "", window.location.pathname);
+        }
+      }
+    };
+    checkInviteToken();
+  }, []);
+
+  // Load user profile for studio settings
+  useEffect(() => {
+    if (user?.userId || user?.id) {
+      getMe(user.userId || user.id)
+        .then((profile) => {
+          if (profile) {
+            setStudioCompany(profile.company || "");
+            setStudioName(profile.full_name || "");
+            setStudioSpecialization(profile.specialization || "Residential Villas & Penthouse Suites");
+            setBuildSiteRange(profile.site_range || "Phnom Penh & Siem Reap Provinces");
+          }
+        })
+        .catch((err) => console.error("Failed to load profile:", err));
+    }
+  }, [user?.userId, user?.id]);
 
   const showToast = (msg) => {
     setCustomNotification(msg);
@@ -311,6 +464,36 @@ export default function ArchitectPage() {
     setShowAddClientModal(false);
     setNewClientData({ name: "", project: "", location: "", budget: 150000 });
     showToast(`Connected client: ${client.name}!`);
+  };
+
+  const handleSendInvite = async (e) => {
+    e.preventDefault();
+    if (!inviteEmail.trim()) return;
+
+    setInviteLoading(true);
+    setInviteError("");
+    setInviteSuccess("");
+
+    try {
+      const res = await sendInvite(inviteEmail.trim(), inviteMessage);
+      if (res?.success) {
+        setInviteSuccess(`Invitation sent to ${inviteEmail}! They will appear in your clients once they accept.`);
+        setInviteEmail("");
+        setInviteMessage("");
+        const updated = await listConnections();
+        if (updated?.data) {
+          const sent = (updated.data.pending_invites || []).filter(i => i.direction === "sent");
+          setPendingInvites(sent);
+        }
+      } else {
+        setInviteError(res?.message || "Failed to send invitation");
+      }
+    } catch (err) {
+      console.error("[handleSendInvite] Error:", err);
+      setInviteError(err.message || "Network error. Please try again.");
+    } finally {
+      setInviteLoading(false);
+    }
   };
 
   // Add material to BoQ List
@@ -365,44 +548,115 @@ export default function ArchitectPage() {
     showToast("Document shared with client workspace!");
   };
 
-  const handleChatSubmit = (e) => {
-    e.preventDefault();
-    if (!chatInput.trim()) return;
+  const loadChatContacts = async () => {
+    const currentId = user?.userId || user?.id;
+    if (!currentId) return;
 
-    const activeClient = getActiveClient();
-    const updatedHistory = [
-      ...(clientChats[selectedClientId] || []),
-      { sender: "architect", text: chatInput, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
-    ];
-
-    setClientChats(prev => ({
-      ...prev,
-      [selectedClientId]: updatedHistory
-    }));
-    setChatInput("");
-    setIsClientTyping(true);
-
-    // Simulate Client Response after 1.5 seconds
-    setTimeout(() => {
-      let clientText = `Thanks for updating me, Sopheap! Let's verify the dimensions on the estimator to make sure it matches regional Phnom Penh indexes.`;
-      const text = chatInput.toLowerCase();
-
-      if (text.includes("price") || text.includes("cost") || text.includes("budget") || text.includes("save")) {
-        clientText = `That sounds fair. Can you update the partition walls outline to trim cement bag consumption by another 5%?`;
-      } else if (text.includes("drawing") || text.includes("layout") || text.includes("render") || text.includes("pdf")) {
-        clientText = `Got it. I'll download the updated layout spec and run it through the DOMNAK scanner tool now.`;
-      }
-
-      setClientChats(prev => ({
-        ...prev,
-        [selectedClientId]: [
-          ...(prev[selectedClientId] || []),
-          { sender: "user", text: clientText, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
-        ]
-      }));
-      setIsClientTyping(false);
-    }, 1500);
+    try {
+      const response = await listContacts();
+      const contactsPayload = Array.isArray(response)
+        ? response
+        : response?.data || [];
+      const contacts = Array.isArray(contactsPayload) ? contactsPayload : [];
+      setChatContacts(contacts
+        .filter((contact) => String(contact.user_id || contact.id) !== String(currentId))
+        .map((contact) => {
+          const name = contact.user_name || contact.full_name || contact.name || contact.user_email || "Unknown user";
+          return {
+            id: contact.user_id || contact.id,
+            name,
+            project: contact.role || "Homeowner",
+            initials: name.split(" ").map((word) => word[0]).slice(0, 2).join("").toUpperCase(),
+          };
+        }));
+    } catch (error) {
+      console.error("Failed to load message contacts", error);
+      showToast("Could not load message contacts.");
+    }
   };
+
+  const loadConversation = async (otherUserId) => {
+    setChatLoading(true);
+    try {
+      const response = await getConversation(otherUserId);
+      const conversationPayload = Array.isArray(response)
+        ? response
+        : response?.data || response?.messages || [];
+      const conversation = Array.isArray(conversationPayload)
+        ? conversationPayload
+        : conversationPayload?.messages || [];
+      const currentId = user?.userId || user?.id;
+      setSelectedConversation(conversation.map((message) => ({
+        id: message.id,
+        sender: String(message.sender_id || message.sender?.id) === String(currentId) ? "me" : "other",
+        text: message.content || message.text || "",
+        time: message.created_at
+          ? new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+          : "",
+      })));
+    } catch (error) {
+      console.error("Failed to load conversation", error);
+      setSelectedConversation([]);
+      showToast("Could not load this conversation.");
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  const handleSelectContact = (contactId) => {
+    setSelectedClientId(contactId);
+    loadConversation(contactId);
+  };
+
+  const handleChatSend = async (text) => {
+    if (!selectedClientId || isChatSending) return;
+
+    const optimistic = {
+      id: `optimistic_${Date.now()}`,
+      sender: "me",
+      text,
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    };
+    setSelectedConversation((previous) => [...previous, optimistic]);
+    setIsChatSending(true);
+
+    try {
+      await sendMessage(selectedClientId, text);
+      await loadConversation(selectedClientId);
+    } catch (error) {
+      console.error("Failed to send message", error);
+      setSelectedConversation((previous) => previous.filter((message) => message.id !== optimistic.id));
+      showToast(error.message || "Could not send message.");
+    } finally {
+      setIsChatSending(false);
+    }
+  };
+
+  const handleDeleteMessage = async (messageId) => {
+    try {
+      await deleteMessage(messageId);
+      setSelectedConversation((previous) => previous.filter((msg) => msg.id !== messageId));
+      showToast("Message deleted");
+    } catch (error) {
+      console.error("Failed to delete message", error);
+      showToast("Could not delete message.");
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "messages") loadChatContacts();
+  }, [activeTab, user?.id, user?.userId]);
+
+  // Poll for new messages when viewing messages tab
+  useEffect(() => {
+    if (activeTab !== "messages" || !selectedClientId) return;
+
+    const pollInterval = setInterval(() => {
+      loadConversation(selectedClientId);
+    }, 15000); // Poll every 15 seconds
+
+    return () => clearInterval(pollInterval);
+  }, [activeTab, selectedClientId]);
 
   // Totals calculations
   const calculateMaterialTotal = (m) => {
@@ -630,8 +884,8 @@ export default function ArchitectPage() {
       doc.text(`Est. Wall Length: ${scanResults.wallLength} lin.m`, 20, 60);
       doc.text(`Est. Roof Area: ${scanResults.roofArea} m²`, 20, 65);
 
-      doc.text(`Studio: ${user?.company || "Angkor Architecture Studio"}`, 110, 50);
-      doc.text(`Lead Architect: ${user?.name || "Sopheap Meas"}`, 110, 55);
+      doc.text(`Studio: ${studioName || user?.full_name || "Angkor Architecture Studio"}`, 110, 50);
+      doc.text(`Lead Architect: ${studioName || user?.full_name || "Sopheap Meas"}`, 110, 55);
       doc.text(`Rooms Layout: ${scanResults.roomCount} Rooms / ${scanResults.bathroomCount} Bath`, 110, 60);
       doc.text(`Report Date: ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`, 110, 65);
 
@@ -743,13 +997,13 @@ export default function ArchitectPage() {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9);
       doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
-      doc.text(user?.name || "Sopheap Meas", 15, finalY + 24);
+      doc.text(studioName || user?.full_name || "Sopheap Meas", 15, finalY + 24);
       doc.text("Client Signature", 115, finalY + 24);
 
       doc.setFont("helvetica", "normal");
       doc.setFontSize(8);
       doc.setTextColor(120, 120, 120);
-      doc.text(`Lead Architect, ${user?.company || "Angkor Studio"}`, 15, finalY + 28);
+      doc.text(`Lead Architect, ${studioName || "Angkor Studio"}`, 15, finalY + 28);
       doc.text("Date: ____ / ____ / ________", 115, finalY + 28);
 
       // Save PDF directly to user's downloads folder!
@@ -772,8 +1026,8 @@ export default function ArchitectPage() {
     const roofVal = `${scanResults?.roofArea || 140} m²`;
     const roomsVal = `${scanResults?.roomCount || 4} Rooms / ${scanResults?.bathroomCount || 1} Bath`;
     const dateVal = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
-    const studioVal = user?.company || "Angkor Architecture Studio";
-    const architectVal = user?.name || "Sopheap Meas";
+    const studioVal = studioName || user?.full_name || "Angkor Architecture Studio";
+    const architectVal = studioName || user?.full_name || "Sopheap Meas";
 
     // 1. Header Paragraphs
     const titleParagraph = new Paragraph({
@@ -1044,9 +1298,21 @@ export default function ArchitectPage() {
       formData.append("file", scanFileObject);
       
       let token = localStorage.getItem("access_token");
+      // Validate JWT format (3 parts separated by dots)
+      if (token) {
+        const parts = token.split(".");
+        if (parts.length !== 3 || parts.some(p => !p)) {
+          console.error("[upload] Token is malformed, clearing and fetching fresh");
+          localStorage.removeItem("access_token");
+          localStorage.removeItem("refresh_token");
+          localStorage.removeItem("user_id");
+          window.dispatchEvent(new Event("domnak_login"));
+          token = null;
+        }
+      }
       if (!token || token === "mock-token-xyz" || token === "undefined" || token === "null") token = null;
       
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/floor-plan/upload`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1/floor-plan/upload`, {
         method: "POST",
         headers: {
           ...(token && { Authorization: `Bearer ${token}` }),
@@ -1242,22 +1508,8 @@ export default function ArchitectPage() {
       {/* ── Full-viewport sidebar layout ─────────────────────────────── */}
       <div className="flex h-screen overflow-hidden bg-[#F5F2EB]">
 
-        {/* Overlay cover when dashboard sidebar is open in drawer mode */}
-        {activeTab !== "overview" && dashboardSidebarOpen && (
-          <div 
-            className="fixed inset-0 z-[55] bg-black/40 backdrop-blur-xs transition-opacity duration-300 cursor-pointer"
-            onClick={() => setDashboardSidebarOpen(false)}
-          />
-        )}
-
         {/* ── Sidebar ──────────────────────────────────────────────────── */}
-        <aside className={`w-64 bg-[#A68A3D] flex flex-col justify-between shrink-0 shadow-xl ${
-          activeTab === "overview"
-            ? "relative z-25"
-            : `fixed inset-y-0 left-0 z-[60] transition-transform duration-300 ease-in-out ${
-                dashboardSidebarOpen ? "translate-x-0" : "-translate-x-full"
-              }`
-        }`}>
+        <aside className="w-64 bg-[#A68A3D] flex flex-col justify-between shrink-0 shadow-xl relative z-25">
           
           {/* Subtle top decoration */}
           <div className="h-1.5 bg-gradient-to-r from-brand-gold to-brand-gold-dark w-full shrink-0 absolute top-0 left-0 z-10" />
@@ -1284,10 +1536,7 @@ export default function ArchitectPage() {
             ].map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
-                onClick={() => {
-                  setActiveTab(id);
-                  setDashboardSidebarOpen(false);
-                }}
+                onClick={() => setActiveTab(id)}
                 className={`w-full flex items-center gap-3 px-4.5 py-3.5 rounded-lg text-sm transition-all duration-200 cursor-pointer relative ${
                   activeTab === id
                     ? "bg-[#FAF5DB] text-[#806626] font-black shadow-sm"
@@ -1306,11 +1555,11 @@ export default function ArchitectPage() {
           <div className="px-4 pb-8 pt-5 border-t border-white/20 flex items-center justify-between gap-3 bg-transparent shrink-0">
             <div className="flex items-center gap-3 min-w-0">
               <div className="h-9 w-9 rounded-full bg-gradient-to-tr from-brand-gold to-brand-gold-dark flex items-center justify-center text-white text-xs font-black flex-shrink-0 select-none uppercase shadow-md border border-white/10 ring-2 ring-brand-gold/20">
-                {(user?.company || user?.name || "AS").charAt(0).toUpperCase()}
+                {(studioName || user?.full_name || "AS").charAt(0).toUpperCase()}
               </div>
               <div className="min-w-0">
                 <span className="text-xs font-black text-white/95 block truncate tracking-tight">
-                  {user?.company || "Angkor Studio"}
+                  {studioName || user?.full_name || "Angkor Studio"}
                 </span>
                 <span className="text-[9px] text-[#FAF7F0]/40 font-semibold block uppercase tracking-wider mt-0.5">
                   Architect Portal
@@ -1335,16 +1584,6 @@ export default function ArchitectPage() {
           {activeTab !== "files" && (
             <header className="bg-[#fffbee]/85 backdrop-blur-md border-b border-brand-dark/10 h-20 flex items-center justify-between px-8 shrink-0 relative z-30">
               <div className="flex items-center space-x-3">
-                {activeTab !== "overview" && (
-                  <button
-                    type="button"
-                    onClick={() => setDashboardSidebarOpen(!dashboardSidebarOpen)}
-                    className="p-2 text-[#201b12]/60 hover:text-[#b38e42] hover:bg-[#201b12]/5 rounded-xl transition-all cursor-pointer"
-                    title="Toggle sidebar"
-                  >
-                    <Menu className="h-5 w-5" />
-                  </button>
-                )}
                 <h1 className="text-2xl font-black italic text-[#A68A3D] tracking-wide">
                   {activeTab === "overview" && "Dashboard"}
                   {activeTab === "scanAnalyzer" && "Plan Analyzer"}
@@ -1465,7 +1704,7 @@ export default function ArchitectPage() {
                       Welcome to Architecture Hub
                       <br />
                       <span className="text-brand-gold italic font-semibold text-5xl sm:text-6xl md:text-6xl block mt-1 select-text relative z-10">
-                        {capitalizeName(user?.name || "Sopheap Meas")}
+                        {capitalizeName(studioName || user?.full_name || "Sopheap Meas")}
                       </span>
                     </h2>
                     <div className="flex items-center gap-6 mt-4 flex-wrap relative z-10">
@@ -1490,7 +1729,7 @@ export default function ArchitectPage() {
               <div className="p-8 max-w-7xl mx-auto space-y-8 w-full flex-grow flex flex-col">
                 
                 {/* Header section with page title */}
-                {activeTab !== "scanAnalyzer" && (
+                {activeTab !== "scanAnalyzer" && activeTab !== "messages" && (
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#1E1C18]/5 pb-6">
                     <div>
                       <h1 className="text-2xl font-black text-brand-dark tracking-tight">
@@ -1498,7 +1737,7 @@ export default function ArchitectPage() {
                         {activeTab === "floorplan"     && "AI Floor Plan Generator"}
                         {activeTab === "boq"           && "Saved Estimates & Drafts History"}
                         {activeTab === "files"         && "AI Chatbot"}
-                        {activeTab === "messages"      && `Client Messages: ${activeClient.name}`}
+                        {activeTab === "messages"      && "Client Chat"}
                         {activeTab === "settings"      && "Studio Profile Configurations"}
                       </h1>
                       <p className="text-xs text-brand-dark/50 mt-1 max-w-2xl font-semibold leading-relaxed">
@@ -1506,7 +1745,7 @@ export default function ArchitectPage() {
                         {activeTab === "floorplan"     && "Generate optimized 2D/3D floor layouts using AI. Adjust rooms, styles, and prompt parameters."}
                         {activeTab === "boq"           && "Browse, download, or edit your saved drafts and sent estimates."}
                         {activeTab === "files"         && "Maintain blueprints, upload rendering proposals, and audit client structural specs."}
-                        {activeTab === "messages"      && "Coordinate client alignment meetings, verify layout changes, and clarify budgets."}
+                        {activeTab === "messages"      && "Chat with your clients directly"}
                         {activeTab === "settings"      && "Configure studio portfolio descriptions, active location settings, and studio credentials."}
                       </p>
                     </div>
@@ -1709,13 +1948,17 @@ export default function ArchitectPage() {
 
               </div>
 
-              {/* Connect Homeowner Client Modal */}
+              {/* Connect Homeowner Client Modal - Invite by email */}
               {showAddClientModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-                  <form onSubmit={handleAddClient} className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md mx-4 space-y-6 border border-brand-dark/5 relative animate-in zoom-in-95 duration-200">
+                  <form onSubmit={handleSendInvite} className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md mx-4 space-y-6 border border-brand-dark/5 relative animate-in zoom-in-95 duration-200">
                     <button
                       type="button"
-                      onClick={() => setShowAddClientModal(false)}
+                      onClick={() => {
+                        setShowAddClientModal(false);
+                        setInviteError("");
+                        setInviteSuccess("");
+                      }}
                       className="absolute top-4 right-4 p-2 rounded-full hover:bg-brand-dark/5 text-brand-dark/40 hover:text-brand-dark transition-all cursor-pointer"
                     >
                       <X className="h-4 w-4" />
@@ -1724,78 +1967,81 @@ export default function ArchitectPage() {
                     <div className="space-y-1">
                       <div className="flex items-center gap-3">
                         <div className="h-10 w-10 rounded-xl bg-brand-gold/10 border border-brand-gold/20 flex items-center justify-center">
-                          <Users className="h-4.5 w-4.5 text-brand-gold" />
+                          <MailIcon className="h-4.5 w-4.5 text-brand-gold" />
                         </div>
                         <div>
-                          <h3 className="text-base font-black text-brand-dark">Connect Homeowner</h3>
-                          <p className="text-xs text-brand-dark/50 font-medium">Create a new client collaboration profile.</p>
+                          <h3 className="text-base font-black text-brand-dark">Invite Homeowner</h3>
+                          <p className="text-xs text-brand-dark/50 font-medium">Send an invite link to a homeowner.</p>
                         </div>
                       </div>
                     </div>
 
+                    {inviteSuccess && (
+                      <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-xs text-green-700 font-bold">
+                        {inviteSuccess}
+                      </div>
+                    )}
+
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-[10px] font-black text-brand-dark/50 uppercase tracking-wider mb-2">Homeowner Name</label>
+                        <label className="block text-[10px] font-black text-brand-dark/50 uppercase tracking-wider mb-2">Homeowner Email</label>
                         <input
-                          type="text"
+                          type="email"
                           required
-                          placeholder="e.g. Sophal Chan"
-                          value={newClientData.name}
-                          onChange={(e) => setNewClientData(prev => ({ ...prev, name: e.target.value }))}
+                          placeholder="e.g. sophal@email.com"
+                          value={inviteEmail}
+                          onChange={(e) => setInviteEmail(e.target.value)}
                           className="w-full text-xs font-bold text-brand-dark bg-[#FAF7F0] border border-brand-dark/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold shadow-sm"
                         />
+                        {inviteError && (
+                          <p className="text-[10px] text-rose-500 font-bold mt-1.5">{inviteError}</p>
+                        )}
                       </div>
 
                       <div>
-                        <label className="block text-[10px] font-black text-brand-dark/50 uppercase tracking-wider mb-2">Project Name / Property Type</label>
-                        <input
-                          type="text"
-                          required
-                          placeholder="e.g. 2-Story Premium Family Villa"
-                          value={newClientData.project}
-                          onChange={(e) => setNewClientData(prev => ({ ...prev, project: e.target.value }))}
-                          className="w-full text-xs font-bold text-brand-dark bg-[#FAF7F0] border border-brand-dark/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold shadow-sm"
+                        <label className="block text-[10px] font-black text-brand-dark/50 uppercase tracking-wider mb-2">Message (optional)</label>
+                        <textarea
+                          placeholder="Add a personal message..."
+                          rows={3}
+                          value={inviteMessage}
+                          onChange={(e) => setInviteMessage(e.target.value)}
+                          className="w-full text-xs font-bold text-brand-dark bg-[#FAF7F0] border border-brand-dark/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold shadow-sm resize-none"
                         />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4">
+                      {pendingInvites.length > 0 && (
                         <div>
-                          <label className="block text-[10px] font-black text-brand-dark/50 uppercase tracking-wider mb-2">Build Location</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. Phnom Penh, BKK1"
-                            value={newClientData.location}
-                            onChange={(e) => setNewClientData(prev => ({ ...prev, location: e.target.value }))}
-                            className="w-full text-xs font-bold text-brand-dark bg-[#FAF7F0] border border-brand-dark/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold shadow-sm"
-                          />
+                          <label className="block text-[10px] font-black text-brand-dark/50 uppercase tracking-wider mb-2">Pending Invites</label>
+                          <div className="space-y-2">
+                            {pendingInvites.map((inv) => (
+                              <div key={inv.id} className="flex items-center justify-between bg-[#FAF7F0] rounded-xl px-4 py-2.5 text-xs">
+                                <span className="font-bold text-brand-dark">{inv.invitee_email}</span>
+                                <span className="text-brand-dark/40 font-semibold">Waiting...</span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        <div>
-                          <label className="block text-[10px] font-black text-brand-dark/50 uppercase tracking-wider mb-2">Total Budget ($)</label>
-                          <input
-                            type="number"
-                            required
-                            placeholder="e.g. 150000"
-                            value={newClientData.budget}
-                            onChange={(e) => setNewClientData(prev => ({ ...prev, budget: parseFloat(e.target.value) || 0 }))}
-                            className="w-full text-xs font-bold text-brand-dark bg-[#FAF7F0] border border-brand-dark/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold shadow-sm text-center"
-                          />
-                        </div>
-                      </div>
+                      )}
                     </div>
 
                     <div className="flex gap-3 pt-1">
                       <button
                         type="button"
-                        onClick={() => setShowAddClientModal(false)}
+                        onClick={() => {
+                          setShowAddClientModal(false);
+                          setInviteError("");
+                          setInviteSuccess("");
+                        }}
                         className="flex-grow py-3 rounded-xl border border-brand-dark/10 text-xs font-black text-brand-dark hover:bg-brand-dark/5 transition-all cursor-pointer text-center"
                       >
                         Cancel
                       </button>
                       <button
                         type="submit"
-                        className="flex-grow py-3 rounded-xl bg-brand-gold hover:bg-brand-gold-dark text-white text-xs font-black shadow-md hover:shadow-lg transition-all cursor-pointer text-center"
+                        disabled={inviteLoading}
+                        className="flex-grow py-3 rounded-xl bg-brand-gold hover:bg-brand-gold-dark text-white text-xs font-black shadow-md hover:shadow-lg transition-all cursor-pointer text-center disabled:opacity-60 disabled:cursor-not-allowed"
                       >
-                        Save Connection
+                        {inviteLoading ? "Sending..." : "Send Invite"}
                       </button>
                     </div>
                   </form>
@@ -2425,26 +2671,46 @@ export default function ArchitectPage() {
                         Cancel
                       </button>
                       <button
-                        onClick={() => {
+                        onClick={async () => {
                           const selectedClient = clients.find(c => c.id === scanQuoteClientId);
-                          const quote = {
-                            id: floorPlanId || `q_${Date.now()}`,
-                            floorPlanId: floorPlanId,
-                            clientId: scanQuoteClientId,
-                            clientName: selectedClient?.name,
-                            fileName: scanFile?.name,
-                            area: scanResults?.area,
-                            total: Math.round(calculateScanBoqTotal()),
-                            boq: scanBoq,
-                            sentAt: new Date().toISOString(),
-                          };
-                          const existing = JSON.parse(localStorage.getItem("domnak_sent_quotes") || "[]");
-                          const updated = [quote, ...existing];
-                          localStorage.setItem("domnak_sent_quotes", JSON.stringify(updated));
-                          setSentQuotesList(updated);
-                          setShowQuoteModal(false);
-                          setNotifications(prev => [{ id: `n_sent_${Date.now()}`, text: `Estimate sent to ${selectedClient?.name || "Client"}`, unread: true }, ...prev]);
-                          showToast(`Quote sent to ${selectedClient?.name}!`);
+                          if (!selectedClient) {
+                            showToast("Please select a client");
+                            return;
+                          }
+                          
+                          try {
+                            // Send quote to backend - boq_data should be a dict with items array
+                            await sendQuoteToClient({
+                              receiverId: scanQuoteClientId,
+                              boqData: { items: scanBoq || [] },
+                              fileName: scanFile?.name,
+                              area: scanResults?.area,
+                              total: Math.round(calculateScanBoqTotal()),
+                            });
+                            
+                            // Also save to local storage
+                            const quote = {
+                              id: floorPlanId || `q_${Date.now()}`,
+                              floorPlanId: floorPlanId,
+                              clientId: scanQuoteClientId,
+                              clientName: selectedClient?.name,
+                              fileName: scanFile?.name,
+                              area: scanResults?.area,
+                              total: Math.round(calculateScanBoqTotal()),
+                              boq: scanBoq,
+                              sentAt: new Date().toISOString(),
+                            };
+                            const existing = JSON.parse(localStorage.getItem("domnak_sent_quotes") || "[]");
+                            const updated = [quote, ...existing];
+                            localStorage.setItem("domnak_sent_quotes", JSON.stringify(updated));
+                            setSentQuotesList(updated);
+                            setShowQuoteModal(false);
+                            setNotifications(prev => [{ id: `n_sent_${Date.now()}`, text: `Estimate sent to ${selectedClient?.name || "Client"}`, unread: true }, ...prev]);
+                            showToast(`Quote sent to ${selectedClient?.name}!`);
+                          } catch (error) {
+                            console.error("Failed to send quote:", error);
+                            showToast("Failed to send quote. Please try again.");
+                          }
                         }}
                         className="flex-1 py-3 rounded-xl bg-brand-gold hover:bg-brand-gold-dark text-white text-xs font-black shadow-md hover:shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2"
                       >
@@ -3102,8 +3368,8 @@ export default function ArchitectPage() {
                       </div>
                       <div className="space-y-2">
                         <p><strong className="text-brand-dark/60 font-semibold uppercase text-[9px] block">Architect & Studio:</strong></p>
-                        <p className="font-bold text-brand-dark">Studio: <span className="font-medium text-brand-dark/70">{user?.company || "Angkor Architecture Studio"}</span></p>
-                        <p className="font-bold text-brand-dark">Lead Architect: <span className="font-medium text-brand-dark/70">{user?.name || "Sopheap Meas"}</span></p>
+                        <p className="font-bold text-brand-dark">Studio: <span className="font-medium text-brand-dark/70">{studioName || "Angkor Architecture Studio"}</span></p>
+                        <p className="font-bold text-brand-dark">Lead Architect: <span className="font-medium text-brand-dark/70">{studioName || user?.full_name || "Sopheap Meas"}</span></p>
                         <p className="font-bold text-brand-dark">Rooms Layout: <span className="font-medium text-brand-dark/70">{scanResults.roomCount} Rooms / {scanResults.bathroomCount} Bath</span></p>
                         <p className="font-bold text-brand-dark">Report Date: <span className="font-medium text-brand-dark/70">{new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span></p>
                       </div>
@@ -3168,8 +3434,8 @@ export default function ArchitectPage() {
                       <div className="space-y-12">
                         <p className="text-brand-dark/50 uppercase tracking-wider text-[9px] font-black">Prepared & Verified By</p>
                         <div className="border-b border-brand-dark/30 pb-2">
-                          <p className="font-bold text-brand-dark">{user?.name || "Sopheap Meas"}</p>
-                          <p className="text-[10px] text-brand-dark/50 mt-0.5">Lead Architect, {user?.company || "Angkor Studio"}</p>
+                          <p className="font-bold text-brand-dark">{studioName || user?.full_name || "Sopheap Meas"}</p>
+                          <p className="text-[10px] text-brand-dark/50 mt-0.5">Lead Architect, {studioName || "Angkor Studio"}</p>
                         </div>
                       </div>
                       <div className="space-y-12">
@@ -3194,55 +3460,16 @@ export default function ArchitectPage() {
           {activeTab === "messages" && (
             <div className="animate-in fade-in duration-300">
               <ChatUI
-                contacts={clients.map(c => {
-                  const chats = clientChats[c.id] || [];
-                  const last = chats[chats.length - 1];
-                  return {
-                    id: c.id,
-                    name: c.name,
-                    role: c.project,
-                    initials: c.name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2),
-                    lastMsg: last?.text || "",
-                    time: last?.time || "",
-                    project: c.project,
-                  };
-                })}
+                contacts={chatContacts}
                 selectedId={selectedClientId}
-                onSelectContact={(id) => setSelectedClientId(id)}
-                messages={(clientChats[selectedClientId] || []).map(m => ({
-                  sender: m.sender === "architect" ? "me" : "other",
-                  text: m.text,
-                  time: m.time,
-                }))}
-                onSendMessage={(text) => {
-                  const updatedHistory = [
-                    ...(clientChats[selectedClientId] || []),
-                    { sender: "architect", text, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }
-                  ];
-                  setClientChats(prev => ({ ...prev, [selectedClientId]: updatedHistory }));
-                  setIsClientTyping(true);
-                  setTimeout(() => {
-                    let clientText = `Thanks for the update! Let me verify the dimensions on the estimator.`;
-                    const t = text.toLowerCase();
-                    if (t.includes("price") || t.includes("cost") || t.includes("budget")) clientText = `That sounds fair. Can you update partition walls to trim cement consumption by 5%?`;
-                    else if (t.includes("drawing") || t.includes("layout") || t.includes("pdf")) clientText = `Got it. I'll run it through the DOMNAK scanner tool now.`;
-                    setClientChats(prev => ({ ...prev, [selectedClientId]: [...(prev[selectedClientId] || []), { sender: "user", text: clientText, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }] }));
-                    setIsClientTyping(false);
-                    const currentClient = clients.find(x => x.id === selectedClientId);
-                    setNotifications(prev => [{ id: `n_chat_${Date.now()}`, text: `New message from ${currentClient?.name || "Homeowner"}`, unread: true }, ...prev]);
-                  }, 1500);
-                }}
-                isTyping={isClientTyping}
-                activeContact={(() => {
-                  const c = clients.find(x => x.id === selectedClientId) || clients[0] || { name: "Homeowner", project: "No active project" };
-                  return {
-                    name: c.name,
-                    role: c.project,
-                    project: c.project,
-                    initials: c.name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2),
-                  };
-                })()}
-                placeholder={`Message ${(clients.find(x => x.id === selectedClientId) || clients[0])?.name || "Homeowner"}…`}
+                onSelectContact={handleSelectContact}
+                messages={selectedConversation}
+                onSendMessage={handleChatSend}
+                onDeleteMessage={handleDeleteMessage}
+                isTyping={false}
+                isSending={isChatSending}
+                activeContact={chatContacts.find((contact) => contact.id === selectedClientId) || null}
+                placeholder="Type a message…"
               />
             </div>
           )}
@@ -3256,9 +3483,22 @@ export default function ArchitectPage() {
               </h3>
 
               <form
-                onSubmit={(e) => {
+                onSubmit={async (e) => {
                   e.preventDefault();
-                  showToast("Studio profile details updated!");
+                  setIsSavingStudio(true);
+                  try {
+                    await updateMe(user?.userId || user?.id, {
+                      full_name: studioName
+                    });
+                    // Update local user state so header reflects the change
+                    login({ ...user, full_name: studioName });
+                    showToast("Studio profile updated successfully!");
+                  } catch (err) {
+                    console.error("Failed to update profile:", err);
+                    showToast("Failed to update profile. Please try again.");
+                  } finally {
+                    setIsSavingStudio(false);
+                  }
                 }}
                 className="space-y-6"
               >
@@ -3268,7 +3508,8 @@ export default function ArchitectPage() {
                     <input
                       type="text"
                       required
-                      defaultValue={user?.company || "Angkor Architecture Studio"}
+                      value={studioCompany}
+                      onChange={(e) => setStudioCompany(e.target.value)}
                       className="w-full text-xs bg-[#FAF7F0] border border-brand-dark/10 rounded-xl px-4 py-3 font-extrabold text-brand-dark focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all shadow-inner"
                     />
                   </div>
@@ -3278,7 +3519,8 @@ export default function ArchitectPage() {
                     <input
                       type="text"
                       required
-                      defaultValue={user?.name || "Sopheap Meas"}
+                      value={studioName}
+                      onChange={(e) => setStudioName(e.target.value)}
                       className="w-full text-xs bg-[#FAF7F0] border border-brand-dark/10 rounded-xl px-4 py-3 font-extrabold text-brand-dark focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all shadow-inner"
                     />
                   </div>
@@ -3287,7 +3529,8 @@ export default function ArchitectPage() {
                     <label className="block text-[10px] font-black text-brand-dark/55 uppercase tracking-wider mb-2">Studio Specialization</label>
                     <input
                       type="text"
-                      defaultValue="Residential Villas & Penthouse Suites"
+                      value={studioSpecialization}
+                      onChange={(e) => setStudioSpecialization(e.target.value)}
                       className="w-full text-xs bg-[#FAF7F0] border border-brand-dark/10 rounded-xl px-4 py-3 font-extrabold text-brand-dark focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all shadow-inner"
                     />
                   </div>
@@ -3296,7 +3539,8 @@ export default function ArchitectPage() {
                     <label className="block text-[10px] font-black text-brand-dark/55 uppercase tracking-wider mb-2">Build Site Range</label>
                     <input
                       type="text"
-                      defaultValue="Phnom Penh & Siem Reap Provinces"
+                      value={buildSiteRange}
+                      onChange={(e) => setBuildSiteRange(e.target.value)}
                       className="w-full text-xs bg-[#FAF7F0] border border-brand-dark/10 rounded-xl px-4 py-3 font-extrabold text-brand-dark focus:outline-none focus:ring-2 focus:ring-brand-gold/20 focus:border-brand-gold focus:bg-white transition-all shadow-inner"
                     />
                   </div>
@@ -3305,10 +3549,20 @@ export default function ArchitectPage() {
                 <div className="pt-6 border-t border-brand-dark/5 flex justify-end">
                   <button
                     type="submit"
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-brand-gold hover:bg-brand-gold-dark text-white px-6 py-3.5 text-xs font-black shadow-md hover:shadow-brand-gold/15 transition-all cursor-pointer"
+                    disabled={isSavingStudio}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-brand-gold hover:bg-brand-gold-dark disabled:opacity-60 text-white px-6 py-3.5 text-xs font-black shadow-md hover:shadow-brand-gold/15 transition-all cursor-pointer"
                   >
-                    <CheckCircle className="h-4 w-4" />
-                    Save Studio Settings
+                    {isSavingStudio ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="h-4 w-4" />
+                        Save Studio Settings
+                      </>
+                    )}
                   </button>
                 </div>
               </form>

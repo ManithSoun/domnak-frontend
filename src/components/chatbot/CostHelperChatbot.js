@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { getToken } from "@/lib/api/client";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import { useAuth } from "../../../router/useAuth";
@@ -141,7 +142,7 @@ export default function CostHelperChatbot({
     if (!textToSend.trim()) return;
 
     // Check if user is logged in
-    const token = localStorage.getItem("access_token");
+    const token = getToken();
     if (!token) {
       const proceed = window.confirm("You need to log in to chat with DomNak AI. Would you like to log in now?");
       if (proceed) {
@@ -644,7 +645,7 @@ export default function CostHelperChatbot({
         <div className="flex-grow flex flex-col justify-between overflow-hidden">
           
           {/* If chat has only initial template prompt -> Show beautiful ChatGPT center screen */}
-          {activeSession.messages.length === 1 && !isTyping ? (
+          {activeSession.messages.length === 1 ? (
             <div className="flex-grow overflow-y-auto flex flex-col justify-center items-center px-4 py-8 bg-[#FAF7F0]/10">
               <div className="max-w-2xl w-full flex flex-col items-center space-y-8 animate-in fade-in-50 slide-in-from-bottom-4 duration-300">
                 
@@ -765,20 +766,6 @@ export default function CostHelperChatbot({
                   );
                 })}
 
-                {/* Typing Indicator */}
-                {isTyping && (
-                  <div className="flex items-start space-x-4 max-w-[85%] mr-auto">
-                    <div className="h-8 w-8 rounded-full shrink-0 flex items-center justify-center font-bold text-xs bg-[#b38e42]/10 text-[#80632b] border border-[#b38e42]/20 shadow-xs">
-                      <Bot className="h-4.5 w-4.5" />
-                    </div>
-                    <div className="bg-white border border-[#b38e42]/10 rounded-2xl rounded-tl-none px-5 py-3.5 flex items-center gap-1.5 shadow-xs">
-                      <span className="h-2 w-2 bg-[#b38e42]/60 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                      <span className="h-2 w-2 bg-[#b38e42]/60 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                      <span className="h-2 w-2 bg-[#b38e42]/60 rounded-full animate-bounce" />
-                    </div>
-                  </div>
-                )}
-                
                 <div ref={messagesEndRef} />
               </div>
             </div>

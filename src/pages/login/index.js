@@ -47,11 +47,19 @@ export default function LoginPage() {
 
   // Effect to parse role query parameters
   useEffect(() => {
-    if (router.isReady && router.query.role) {
-      const queryRole = router.query.role.toLowerCase();
-      if (queryRole === "homeowner" || queryRole === "architect") {
-        setRole(queryRole);
-        setIsLogin(false); // Default to Create Account (Sign Up) 
+    if (router.isReady) {
+      // Parse error from query params (e.g., session expired redirect)
+      if (router.query.error) {
+        setError(decodeURIComponent(router.query.error));
+        // Clean URL without reload
+        router.replace("/login", undefined, { shallow: true });
+      }
+      if (router.query.role) {
+        const queryRole = router.query.role.toLowerCase();
+        if (queryRole === "homeowner" || queryRole === "architect") {
+          setRole(queryRole);
+          setIsLogin(false);
+        }
       }
     }
   }, [router.isReady, router.query]);
@@ -146,11 +154,15 @@ export default function LoginPage() {
         
         const resolvedData = data.data || data;
         
+        console.log("[Login] Full response:", data);
+        console.log("[Login] Resolved data:", resolvedData);
+        console.log("[Login] Token:", resolvedData.access_token ? "Present" : "Missing");
+        
         // Log in via useAuth hook
         login({
           email: formData.email,
           role: resolvedData.role || role || "homeowner",
-          name: resolvedData.full_name || formData.email.split("@")[0] || "richhyda",
+          full_name: resolvedData.full_name || formData.email.split("@")[0] || "richhyda",
           company: role === "architect" ? formData.company : null,
           userId: resolvedData.user_id,
           accessToken: resolvedData.access_token,

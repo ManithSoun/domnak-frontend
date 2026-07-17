@@ -14,7 +14,15 @@ export function useAuth() {
         const sessionStr = localStorage.getItem("domnak_session");
         if (sessionStr) {
           try {
-            setUser(JSON.parse(sessionStr));
+            const session = JSON.parse(sessionStr);
+            setUser(session);
+            // Sync access_token for apiFetch
+            if (session.accessToken) {
+              localStorage.setItem("access_token", session.accessToken);
+            }
+            if (session.userId) {
+              localStorage.setItem("user_id", session.userId);
+            }
           } catch (e) {
             console.error("Failed to parse domnak session", e);
           }
@@ -40,6 +48,16 @@ export function useAuth() {
 
   const login = (sessionData) => {
     localStorage.setItem("domnak_session", JSON.stringify(sessionData));
+    // Also store access_token directly for apiFetch
+    if (sessionData.accessToken) {
+      localStorage.setItem("access_token", sessionData.accessToken);
+    }
+    if (sessionData.userId) {
+      localStorage.setItem("user_id", sessionData.userId);
+    }
+    if (sessionData.refreshToken) {
+      localStorage.setItem("refresh_token", sessionData.refreshToken);
+    }
     setUser(sessionData);
     // Dispatch custom event to trigger updates inside same-tab components
     window.dispatchEvent(new Event("domnak_login"));
@@ -47,6 +65,9 @@ export function useAuth() {
 
   const logout = () => {
     localStorage.removeItem("domnak_session");
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("refresh_token");
+    localStorage.removeItem("user_id");
     setUser(null);
     window.dispatchEvent(new Event("domnak_login"));
     router.push(ROUTES.LOGIN);

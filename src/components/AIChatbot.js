@@ -283,20 +283,6 @@ export default function AIChatbot({ userName = "User" }) {
                   </div>
                 </div>
               ))}
-
-              {/* Typing indicator */}
-              {isTyping && (
-                <div className="flex gap-3 justify-start">
-                  <div className="h-8 w-8 rounded-xl bg-[#EDE7D8] flex items-center justify-center flex-shrink-0 shadow-inner">
-                    <Bot className="h-4 w-4 text-brand-gold" />
-                  </div>
-                  <div className="bg-white rounded-2xl rounded-tl-sm px-4 py-3.5 shadow-sm border border-[#E8E3DA] flex items-center gap-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-brand-gold/60 animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <span className="h-1.5 w-1.5 rounded-full bg-brand-gold/60 animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <span className="h-1.5 w-1.5 rounded-full bg-brand-gold/60 animate-bounce" style={{ animationDelay: "300ms" }} />
-                  </div>
-                </div>
-              )}
               <div ref={messagesEndRef} />
             </div>
           )}

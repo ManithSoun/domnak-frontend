@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { getToken } from "@/lib/api/client";
 import Head from "next/head";
 import Link from "next/link";
 import Header from "@/components/layout/Header";
@@ -13,10 +14,15 @@ import {
   createQuote, 
   deleteQuote, 
   updateQuote,
+  getReceivedQuotes,
   getSuppliers, 
   uploadPdf,
-  getAnalysisResults
+  getAnalysisResults,
+  getConversation,
+  sendMessage,
+  deleteMessage
 } from "@/lib/api/index";
+import { listConnections, listContacts, sendInvite, acceptInvite, rejectInvite, acceptInviteByToken, getMyShareLink, getNotifications, markNotificationRead } from "@/lib/api/connection";
 import styles from "./Homeowners.module.css";
 import {
   UploadCloud,
@@ -45,6 +51,7 @@ import {
   MessageSquare,
   LayoutDashboard,
   History,
+  Inbox,
   User,
   Bell,
   Bot,
@@ -61,7 +68,10 @@ import {
   Store,
   Calculator,
   LogOut,
-  Menu
+  Menu,
+  X,
+  Check,
+  XCircle
 } from "lucide-react";
 
 // Preset configurations for simulated AI extraction
@@ -149,8 +159,10 @@ export default function HomeownersPage() {
   };
 
   // Sidebar Tab State
-  const [sidebarTab, setSidebarTab] = useState("home"); // "home" | "quotes" | "history" | "suppliers" | "chat" | "chatbot"
+  const [sidebarTab, setSidebarTab] = useState("home"); // "home" | "quotes" | "history" | "received" | "suppliers" | "chat" | "chatbot"
   const [dashboardSidebarOpen, setDashboardSidebarOpen] = useState(false);
+  const [receivedQuotes, setReceivedQuotes] = useState([]);
+  const [receivedQuoteToReview, setReceivedQuoteToReview] = useState(null);
 
   // Stored Audit History & Profile details
   const [auditHistory, setAuditHistory] = useState([]);
@@ -164,6 +176,24 @@ export default function HomeownersPage() {
   // Architect Chat History
   const [architectChat, setArchitectChat] = useState([]);
   const [architectInput, setArchitectInput] = useState("");
+  const [chatContacts, setChatContacts] = useState([]);
+  const [selectedChatUserId, setSelectedChatUserId] = useState(null);
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [messages, setMessages] = useState([]);
+  const [chatSending, setChatSending] = useState(false);
+
+  // Connection / Invite State
+  const [pendingInvites, setPendingInvites] = useState([]);
+  const [showInviteBanner, setShowInviteBanner] = useState(false);
+  const [myShareLink, setMyShareLink] = useState("");
+  const [inviteLinkCopied, setInviteLinkCopied] = useState(false);
+  const [connectionLoading, setConnectionLoading] = useState(false);
+  const [connectionMessage, setConnectionMessage] = useState("");
+
+  // Notifications State
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   // Core Navigation State
   const [activePreset, setActivePreset] = useState(null);
@@ -208,33 +238,8 @@ export default function HomeownersPage() {
   const [selectedFloor, setSelectedFloor] = useState("Ground Floor");
   const [customNotification, setCustomNotification] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications, setNotifications] = useState([
-    {
-      id: 1,
-      title: "New Architect Message",
-      message: "Architect Sopheap Meas sent you a message about the excavation cost adjustment.",
-      time: "5 mins ago",
-      unread: true,
-      category: "message"
-    },
-    {
-      id: 2,
-      title: "Audit Success",
-      message: "AI Audit compiled successfully for Constructor_Quote.pdf with 9 verified items.",
-      time: "2 hours ago",
-      unread: false,
-      category: "audit"
-    },
-    {
-      id: 3,
-      title: "Regional Price Alert",
-      message: "Steel rebar wholesale rates in Toul Kork decreased by 1.5% this week.",
-      time: "1 day ago",
-      unread: false,
-      category: "price"
-    }
-  ]);
+
+  // UI Interaction States (end)
 
   // BoQ Item Explanation Accordion State
   const [expandedBoqItem, setExpandedBoqItem] = useState(null);
@@ -249,10 +254,6 @@ export default function HomeownersPage() {
   // Initialize localStorage data and fetch from backend on mount
   useEffect(() => {
     if (typeof window !== "undefined") {
-      // Clear old cached mock history to start with a clean slate
-      localStorage.removeItem("domnak_audit_history");
-      setAuditHistory([]);
-      
       const storedLocation = localStorage.getItem("domnak_profile_location");
       const storedBudget = localStorage.getItem("domnak_profile_budget");
       const storedStartDate = localStorage.getItem("domnak_profile_start_date");
@@ -277,12 +278,23 @@ export default function HomeownersPage() {
     }
   }, [chatMessages]);
 
-  // Load quotes from backend
+  // Load quotes from backend (merge with localStorage data)
   useEffect(() => {
+    // First, load from localStorage for immediate display
+    const storedHistory = localStorage.getItem("domnak_audit_history");
+    if (storedHistory) {
+      try {
+        setAuditHistory(JSON.parse(storedHistory));
+      } catch (e) {
+        console.error("Failed to parse stored history:", e);
+      }
+    }
+    
+    // Then fetch from backend to sync
     if (user) {
       getQuotes()
         .then((response) => {
-          if (response && response.data) {
+          if (response && response.data && response.data.length > 0) {
             const mappedHistory = response.data.map(q => ({
               id: q.id,
               date: new Date(q.created_at || Date.now()).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
@@ -300,6 +312,71 @@ export default function HomeownersPage() {
     }
   }, [user]);
 
+  // Helper to parse quote info from chat messages
+  const parseQuotesFromMessages = (messages) => {
+    const quoteRegex = /New Quote from (.+?)\n\nFile: (.+?)\nTotal: \$([\d,]+\.?\d*)/g;
+    const quotes = [];
+    for (const msg of messages) {
+      const content = msg.text || msg.content || "";
+      let match;
+      while ((match = quoteRegex.exec(content)) !== null) {
+        quotes.push({
+          id: `msg_${msg.id}`,
+          sender_name: match[1], // contractor_name -> sender_name for UI
+          contractor_name: match[1],
+          file_name: match[2],
+          total_amount: parseFloat(match[3].replace(/,/g, "")),
+          created_at: msg.created_at || msg.time,
+          from_message: true,
+          message_id: msg.id
+        });
+      }
+    }
+    return quotes;
+  };
+
+  // Load received quotes from architects
+  useEffect(() => {
+    if (user) {
+      Promise.all([
+        getReceivedQuotes().catch(() => ({ data: [] })),
+      ])
+        .then(([quotesResponse]) => {
+          const dbQuotes = quotesResponse?.data || [];
+          // Deduplicate by id
+          const seen = new Set();
+          const unique = dbQuotes.filter(q => {
+            if (seen.has(q.id)) return false;
+            seen.add(q.id);
+            return true;
+          });
+          setReceivedQuotes(unique);
+        })
+        .catch((err) => console.log("No received quotes:", err));
+    }
+  }, [user]);
+
+  // Parse quotes from chat messages and add to received quotes
+  useEffect(() => {
+    if (messages.length > 0) {
+      const messageQuotes = parseQuotesFromMessages(messages);
+      if (messageQuotes.length > 0) {
+        setReceivedQuotes(prev => {
+          // Merge with existing quotes, avoiding duplicates
+          const existingIds = new Set(prev.map(q => q.id));
+          const existingMsgIds = new Set(prev.filter(q => q.from_message).map(q => q.message_id));
+          const newQuotes = messageQuotes.filter(q => 
+            !existingIds.has(q.id) && !existingMsgIds.has(q.message_id)
+          );
+          if (newQuotes.length > 0) {
+            return [...prev, ...newQuotes];
+          }
+          return prev;
+        });
+      }
+    }
+  }, [messages]);
+
   // Load suppliers from backend
   useEffect(() => {
     getSuppliers()
@@ -316,6 +393,106 @@ export default function HomeownersPage() {
       })
       .catch((err) => console.log("Using static supplier list fallback:", err));
   }, []);
+
+  // Load connections and check for pending invites
+  useEffect(() => {
+    const loadConnections = async () => {
+      try {
+        const res = await listConnections();
+        if (res?.data) {
+          const received = (res.data.pending_invites || []).filter(i => i.direction === "received");
+          setPendingInvites(received);
+          if (received.length > 0) {
+            setShowInviteBanner(true);
+          }
+        }
+        
+        // Also load the homeowner's share link
+        const shareRes = await getMyShareLink();
+        if (shareRes?.data?.share_link) {
+          setMyShareLink(shareRes.data.share_link);
+        }
+      } catch (err) {
+        console.error("Failed to load connections:", err);
+      }
+    };
+    if (user?.id || user?.userId) {
+      loadConnections();
+    }
+  }, [user?.id, user?.userId]);
+
+  // Check if user arrived via invite link
+  useEffect(() => {
+    const checkInviteToken = async () => {
+      if (typeof window === "undefined") return;
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get("connect");
+      if (token) {
+        setConnectionLoading(true);
+        try {
+          const res = await acceptInviteByToken(token);
+          if (res?.success) {
+            setConnectionMessage(res.message || "Connected successfully!");
+            // Reload connections
+            const updated = await listConnections();
+            if (updated?.data) {
+              const received = (updated.data.pending_invites || []).filter(i => i.direction === "received");
+              setPendingInvites(received);
+            }
+          } else {
+            setConnectionMessage(res?.message || "Failed to accept connection.");
+          }
+        } catch (err) {
+          setConnectionMessage("Failed to accept connection.");
+        } finally {
+          setConnectionLoading(false);
+          // Clean URL
+          window.history.replaceState({}, "", window.location.pathname);
+        }
+      }
+    };
+    checkInviteToken();
+  }, []);
+
+  const handleAcceptInvite = async (inviteId) => {
+    setConnectionLoading(true);
+    try {
+      await acceptInvite(inviteId);
+      const res = await listConnections();
+      if (res?.data) {
+        const received = (res.data.pending_invites || []).filter(i => i.direction === "received");
+        setPendingInvites(received);
+        setConnectionMessage("Invitation accepted!");
+      }
+    } catch (err) {
+      setConnectionMessage("Failed to accept invitation.");
+    } finally {
+      setConnectionLoading(false);
+    }
+  };
+
+  const handleRejectInvite = async (inviteId) => {
+    setConnectionLoading(true);
+    try {
+      await rejectInvite(inviteId);
+      const res = await listConnections();
+      if (res?.data) {
+        const received = (res.data.pending_invites || []).filter(i => i.direction === "received");
+        setPendingInvites(received);
+      }
+    } catch (err) {
+      console.error("Failed to reject:", err);
+    } finally {
+      setConnectionLoading(false);
+    }
+  };
+
+  const handleCopyShareLink = () => {
+    const link = myShareLink || `${window.location.origin}/connect?token=me`;
+    navigator.clipboard.writeText(link);
+    setInviteLinkCopied(true);
+    setTimeout(() => setInviteLinkCopied(false), 2000);
+  };
 
   // Save/Update Audit to History list
   const saveAuditToHistory = (auditToSave) => {
@@ -404,37 +581,170 @@ export default function HomeownersPage() {
     setDashboardTab("overview");
   };
 
-  const handleArchitectChatSubmit = (e) => {
-    e.preventDefault();
-    if (!architectInput.trim()) return;
+  const loadChatContacts = async () => {
+    const currentId = user?.userId || user?.id;
+    if (!currentId) return;
 
-    const userMsg = { 
-      sender: "user", 
-      text: architectInput, 
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
-    };
-    setArchitectChat(prev => [...prev, userMsg]);
-    setArchitectInput("");
-
-    // Simulated architect response
-    setTimeout(() => {
-      let replyText = "Understood. I am cross-referencing your request with the local BoQ building standards in Phnom Penh. Let me make those adjustments and get back to you with updated layouts.";
-      const text = architectInput.toLowerCase();
-      
-      if (text.includes("budget") || text.includes("cost") || text.includes("price") || text.includes("save")) {
-        replyText = "To keep the project budget aligned, we can look at optimizing the structural masonry brick count or transitioning the guest bedroom tile specifications to standard tier finishes.";
-      } else if (text.includes("dimensions") || text.includes("size") || text.includes("room") || text.includes("floor")) {
-        replyText = "Let me adjust the grid partition coordinates for those rooms. Conforming them to a tighter grid structure will reduce concrete formwork and steel costs.";
-      }
-      
-      const archMsg = { 
-        sender: "architect", 
-        text: replyText, 
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
-      };
-      setArchitectChat(prev => [...prev, archMsg]);
-    }, 1500);
+    try {
+      const response = await listContacts();
+      const contactsPayload = Array.isArray(response)
+        ? response
+        : response?.data || response || [];
+      const contacts = Array.isArray(contactsPayload) ? contactsPayload : [];
+      setChatContacts(contacts
+        .filter((contact) => String(contact.user_id || contact.id) !== String(currentId))
+        .map((contact) => {
+          const name = contact.user_name || contact.full_name || contact.name || contact.user_email || "Unknown user";
+          return {
+            id: contact.user_id || contact.id,
+            name,
+            role: contact.role || "",
+            initials: name.split(" ").map((word) => word[0]).slice(0, 2).join("").toUpperCase(),
+          };
+        }));
+    } catch (error) {
+      console.error("Failed to load message contacts", error);
+      showToast("Could not load message contacts.");
+    }
   };
+
+  const loadNotifications = async () => {
+    try {
+      const response = await getNotifications();
+      const notificationsData = Array.isArray(response) ? response : response?.data || [];
+      // Deduplicate by id
+      const seen = new Set();
+      const unique = notificationsData.filter(n => {
+        if (seen.has(n.id)) return false;
+        seen.add(n.id);
+        return true;
+      });
+      setNotifications(unique);
+      setUnreadCount(unique.filter(n => !n.read).length);
+    } catch (error) {
+      console.error("Failed to load notifications", error);
+    }
+  };
+
+  const handleMarkNotificationRead = async (notificationId) => {
+    try {
+      await markNotificationRead(notificationId);
+      setNotifications(prev => prev.map(n => 
+        n.id === notificationId ? { ...n, read: true } : n
+      ));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    } catch (error) {
+      console.error("Failed to mark notification as read", error);
+    }
+  };
+
+  const loadConversation = async (otherUserId) => {
+    setIsChatLoading(true);
+    const previousMessagesCount = messages.length;
+    try {
+      const response = await getConversation(otherUserId);
+      const conversationPayload = Array.isArray(response)
+        ? response
+        : response?.data || response?.messages || [];
+      const conversation = Array.isArray(conversationPayload)
+        ? conversationPayload
+        : conversationPayload?.messages || [];
+      const currentId = user?.userId || user?.id;
+      const newMessages = conversation.map((message) => ({
+        id: message.id,
+        sender: String(message.sender_id || message.sender?.id) === String(currentId) ? "me" : "other",
+        text: message.content || message.text || "",
+        time: message.created_at
+          ? new Date(message.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+          : "",
+      }));
+      setMessages(newMessages);
+
+      // Show notification for new incoming messages (not from polling after sending)
+      if (newMessages.length > previousMessagesCount) {
+        const newIncomingMessages = newMessages.slice(previousMessagesCount);
+        const hasIncoming = newIncomingMessages.some(m => m.sender === "other");
+        if (hasIncoming && selectedChatUserId !== otherUserId) {
+          const contact = chatContacts.find(c => c.id === otherUserId);
+          setCustomNotification({
+            type: "info",
+            message: `New message from ${contact?.name || "contact"}`
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load conversation", error);
+      setMessages([]);
+      showToast("Could not load this conversation.");
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  const handleSelectChatContact = (contactId) => {
+    setSelectedChatUserId(contactId);
+    loadConversation(contactId);
+  };
+
+  const handleChatSend = async (text) => {
+    if (!selectedChatUserId || chatSending) return;
+
+    setChatSending(true);
+    setCustomNotification({ type: "info", message: "Sending..." });
+
+    try {
+      await sendMessage(selectedChatUserId, text);
+      await loadConversation(selectedChatUserId);
+      loadChatContacts();
+      setCustomNotification({
+        type: "success",
+        message: "Message sent"
+      });
+    } catch (error) {
+      console.error("Failed to send message", error);
+      showToast(error.message || "Could not send message.");
+    } finally {
+      setChatSending(false);
+    }
+  };
+
+  const handleDeleteMessage = async (messageId) => {
+    try {
+      await deleteMessage(messageId);
+      setMessages((previous) => previous.filter((msg) => msg.id !== messageId));
+      showToast("Message deleted");
+    } catch (error) {
+      console.error("Failed to delete message", error);
+      showToast("Could not delete message.");
+    }
+  };
+
+  useEffect(() => {
+    if (sidebarTab === "chat") loadChatContacts();
+  }, [sidebarTab, user?.id, user?.userId]);
+
+  useEffect(() => {
+    if (selectedChatUserId && sidebarTab === "chat") {
+      loadConversation(selectedChatUserId);
+    }
+  }, [selectedChatUserId, sidebarTab]);
+
+  // Poll for new messages every 15 seconds when chat tab is active
+  useEffect(() => {
+    if (selectedChatUserId && sidebarTab === "chat") {
+      const interval = setInterval(() => {
+        loadConversation(selectedChatUserId);
+        loadChatContacts();
+      }, 15000);
+      return () => clearInterval(interval);
+    }
+  }, [selectedChatUserId, sidebarTab]);
+
+  useEffect(() => {
+    if (user) {
+      loadNotifications();
+    }
+  }, [user?.id, user?.userId]);
 
   const handleFileUpload = async (e) => {
     e.preventDefault();
@@ -1041,11 +1351,11 @@ export default function HomeownersPage() {
 
     try {
       // Connect to backend
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/chat/chat/stream`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/v1chat/chat/stream`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(localStorage.getItem("access_token") && !["mock-token-xyz", "undefined", "null"].includes(localStorage.getItem("access_token")) && { Authorization: `Bearer ${localStorage.getItem("access_token")}` })
+          ...(getToken() && { Authorization: `Bearer ${getToken()}` })
         },
         body: JSON.stringify({
           message: userQuery,
@@ -1111,25 +1421,59 @@ export default function HomeownersPage() {
         <meta name="description" content="Upload and audit contractor invoices. Edit room structures and visualize the 2D layout in real-time with DomNak's proprietary AI analyzer." />
       </Head>
 
+      {/* ── Connection Banner (pending invites) ──────────────────── */}
+      {showInviteBanner && pendingInvites.length > 0 && (
+        <div className="fixed top-0 left-0 right-0 z-[100] bg-brand-gold/95 backdrop-blur text-white px-4 py-3 shadow-lg">
+          <div className="max-w-5xl mx-auto flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-3">
+              <MailIcon className="h-4 w-4 shrink-0" />
+              <span className="text-xs font-bold">
+                You have {pendingInvites.length} architect {pendingInvites.length === 1 ? "request" : "requests"} waiting.
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {pendingInvites.map((inv) => (
+                <div key={inv.id} className="flex items-center gap-2 bg-white/20 rounded-xl px-3 py-1.5">
+                  <span className="text-[10px] font-black">{inv.inviter_name || inv.inviter_email}</span>
+                  <button
+                    onClick={() => handleAcceptInvite(inv.id)}
+                    disabled={connectionLoading}
+                    className="text-[10px] font-black bg-white text-brand-gold px-2 py-1 rounded-lg hover:bg-white/90 transition-colors cursor-pointer disabled:opacity-60"
+                  >
+                    Accept
+                  </button>
+                  <button
+                    onClick={() => handleRejectInvite(inv.id)}
+                    disabled={connectionLoading}
+                    className="text-[10px] font-black bg-white/20 px-2 py-1 rounded-lg hover:bg-white/30 transition-colors cursor-pointer"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={() => setShowInviteBanner(false)}
+                className="text-white/70 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Connection success message ───────────────────────────── */}
+      {connectionMessage && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[100] bg-emerald-600 text-white px-6 py-3 rounded-2xl shadow-lg text-xs font-bold animate-in fade-in slide-in-from-top-2 duration-300">
+          {connectionMessage}
+        </div>
+      )}
+
       {/* ── Full-viewport sidebar layout ─────────────────────────────── */}
       <div className={styles.pageLayoutContainer}>
 
-        {/* Overlay cover when dashboard sidebar is open in drawer mode */}
-        {sidebarTab !== "home" && dashboardSidebarOpen && (
-          <div 
-            className="fixed inset-0 z-[55] bg-black/40 backdrop-blur-xs transition-opacity duration-300 cursor-pointer"
-            onClick={() => setDashboardSidebarOpen(false)}
-          />
-        )}
-
         {/* ── Sidebar ──────────────────────────────────────────────────── */}
-        <aside className={`${styles.sidebar} ${
-          sidebarTab === "home" 
-            ? "" 
-            : `fixed inset-y-0 left-0 z-[60] transition-transform duration-300 ease-in-out ${
-                dashboardSidebarOpen ? "translate-x-0" : "-translate-x-full"
-              }`
-        }`}>
+        <aside className={styles.sidebar}>
           
           {/* Subtle top decoration */}
           <div className={styles.topDecoration} />
@@ -1149,21 +1493,32 @@ export default function HomeownersPage() {
                 { id: "home",      label: "Dashboard",      icon: LayoutDashboard },
                 { id: "quotes",    label: "Cost Estimator", icon: Calculator },
                 { id: "history",   label: "History",        icon: History },
+                { id: "received",  label: "Received",       icon: Inbox },
                 { id: "chatbot",   label: "Chatbot",        icon: Bot },
                 { id: "chat",      label: "Messages",       icon: MailIcon },
                 { id: "suppliers", label: "Supplier",       icon: Store }
               ].map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
-                onClick={() => {
-                  setSidebarTab(id);
-                  setDashboardSidebarOpen(false);
-                }}
+                onClick={() => setSidebarTab(id)}
                 className={`${sidebarTab === id ? styles.navButtonActive : styles.navButton} group`}
               >
-                <Icon className={`h-4.5 w-4.5 flex-shrink-0 transition-transform duration-300 group-hover:scale-105 ${
-                  sidebarTab === id ? "text-[#806626]" : "text-white/80 group-hover:text-white"
-                }`} />
+                {id === "chat" ? (
+                  <div className="relative">
+                    <Icon className={`h-4.5 w-4.5 flex-shrink-0 transition-transform duration-300 group-hover:scale-105 ${
+                      sidebarTab === id ? "text-[#806626]" : "text-white/80 group-hover:text-white"
+                    }`} />
+                    {unreadCount > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-red-500 text-[10px] font-bold text-white flex items-center justify-center">
+                        {unreadCount > 9 ? "9+" : unreadCount}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <Icon className={`h-4.5 w-4.5 flex-shrink-0 transition-transform duration-300 group-hover:scale-105 ${
+                    sidebarTab === id ? "text-[#806626]" : "text-white/80 group-hover:text-white"
+                  }`} />
+                )}
                 <span>{label}</span>
               </button>
             ))}
@@ -1207,7 +1562,7 @@ export default function HomeownersPage() {
           {customNotification && (
             <div className={styles.globalToast}>
               <Sparkles className="h-4.5 w-4.5 text-brand-gold animate-pulse" />
-              <span>{customNotification}</span>
+              <span>{customNotification.message}</span>
             </div>
           )}
 
@@ -1215,16 +1570,6 @@ export default function HomeownersPage() {
           {sidebarTab !== "chatbot" && (
             <div className={styles.headerBar}>
               <div className="flex items-center space-x-3">
-                {sidebarTab !== "home" && (
-                  <button
-                    type="button"
-                    onClick={() => setDashboardSidebarOpen(!dashboardSidebarOpen)}
-                    className="p-2 text-[#201b12]/60 hover:text-[#b38e42] hover:bg-[#201b12]/5 rounded-xl transition-all cursor-pointer"
-                    title="Toggle sidebar"
-                  >
-                    <Menu className="h-5 w-5" />
-                  </button>
-                )}
                 {sidebarTab === "home" && auditHistory.length === 0 ? (
                   <div className="flex items-center h-16">
                     <img 
@@ -1254,9 +1599,9 @@ export default function HomeownersPage() {
               <div className={styles.headerIconContainer} style={{ position: "relative" }}>
                 <div className={styles.iconWrapper} onClick={() => setShowNotifications(!showNotifications)}>
                   <Bell className={styles.headerIcon} />
-                  {notifications.some(n => n.unread) && (
+                  {unreadCount > 0 && (
                     <span className={styles.redBadge}>
-                      {notifications.filter(n => n.unread).length}
+                      {unreadCount > 9 ? "9+" : unreadCount}
                     </span>
                   )}
                 </div>
@@ -1268,7 +1613,11 @@ export default function HomeownersPage() {
                       <div className="flex items-center justify-between border-b border-[#1E1C18]/5 pb-3 mb-3">
                         <span className="text-xs font-black text-[#1E1C18]">Notifications</span>
                         <button 
-                          onClick={() => setNotifications(prev => prev.map(n => ({ ...n, unread: false })))}
+                          onClick={() => {
+                            notifications.forEach(n => {
+                              if (!n.read) handleMarkNotificationRead(n.id);
+                            });
+                          }}
                           className="text-[9px] font-black text-brand-gold hover:underline uppercase tracking-wider bg-transparent border-none cursor-pointer"
                         >
                           Mark all read
@@ -1278,37 +1627,41 @@ export default function HomeownersPage() {
                       <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
                         {notifications.length === 0 ? (
                           <div className="text-center py-6 text-[10px] text-[#1E1C18]/40 font-bold">
-                            No notifications.
+                            No notifications yet
                           </div>
                         ) : (
                           notifications.map((notif) => (
                             <div 
                               key={notif.id} 
                               onClick={() => {
-                                setNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, unread: false } : n));
-                                if (notif.category === "message") {
+                                if (!notif.read) {
+                                  handleMarkNotificationRead(notif.id);
+                                }
+                                if (notif.type === "connection_request") {
                                   setSidebarTab("chat");
                                 }
                                 setShowNotifications(false);
                               }}
-                              className={`p-3 rounded-2xl border text-left cursor-pointer transition-all duration-200 flex gap-2.5 ${notif.unread ? "bg-brand-gold/5 border-brand-gold/15" : "bg-[#FAF7F0]/25 hover:bg-[#FAF7F0]/60 border-[#1E1C18]/5"}`}
+                              className={`p-3 rounded-2xl border text-left cursor-pointer transition-all duration-200 flex gap-2.5 ${!notif.read ? "bg-brand-gold/5 border-brand-gold/15" : "bg-[#FAF7F0]/25 hover:bg-[#FAF7F0]/60 border-[#1E1C18]/5"}`}
                             >
                               <div className="h-8 w-8 rounded-xl bg-brand-gold/10 border border-brand-gold/10 flex items-center justify-center flex-shrink-0 shadow-sm">
-                                {notif.category === "message" ? (
+                                {notif.type === "connection_request" ? (
+                                  <UserCheck className="h-4 w-4 text-brand-gold" />
+                                ) : notif.type === "message" ? (
                                   <MessageSquare className="h-4 w-4 text-brand-gold" />
-                                ) : notif.category === "audit" ? (
-                                  <CheckCircle className="h-4 w-4 text-brand-gold" />
                                 ) : (
-                                  <Scale className="h-4 w-4 text-brand-gold" />
+                                  <CheckCircle className="h-4 w-4 text-brand-gold" />
                                 )}
                               </div>
                               <div className="space-y-0.5 flex-1 min-w-0">
                                 <div className="flex justify-between items-center">
-                                  <span className="text-[11px] font-black text-[#1E1C18] block truncate">{notif.title}</span>
-                                  {notif.unread && <span className="h-1.5 w-1.5 rounded-full bg-brand-gold flex-shrink-0" />}
+                                  <span className="text-[11px] font-black text-[#1E1C18] block truncate">{notif.title || "New Notification"}</span>
+                                  {!notif.read && <span className="h-1.5 w-1.5 rounded-full bg-brand-gold flex-shrink-0" />}
                                 </div>
-                                <p className="text-[10px] text-[#1E1C18]/65 font-medium leading-relaxed break-words">{notif.message}</p>
-                                <span className="text-[8px] text-[#1E1C18]/40 font-mono block mt-1">{notif.time}</span>
+                                <p className="text-[10px] text-[#1E1C18]/65 font-medium leading-relaxed break-words">{notif.message || "You have a new notification"}</p>
+                                <span className="text-[8px] text-[#1E1C18]/40 font-mono block mt-1">
+                                  {notif.created_at ? new Date(notif.created_at).toLocaleString() : "Just now"}
+                                </span>
                               </div>
                             </div>
                           ))
@@ -1419,6 +1772,34 @@ export default function HomeownersPage() {
                         <div>
                           <span className="text-[10px] font-black text-[#1E1C18]/45 uppercase tracking-wider block">Avg Proposal Price</span>
                           <span className="text-xl font-black text-[#1E1C18] mt-0.5 block">${averageQuotePrice.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Connect with Architect Section */}
+                    <div className="bg-gradient-to-br from-[#FAF7F0] to-white border border-brand-gold/20 rounded-3xl p-6 shadow-sm">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                        <div className="h-12 w-12 rounded-2xl bg-brand-gold/10 flex items-center justify-center text-brand-gold shrink-0">
+                          <Share2 className="h-6 w-6" />
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="text-sm font-black text-[#1E1C18]">Share Your Profile Link</h3>
+                          <p className="text-xs text-[#1E1C18]/50 mt-0.5">Send this link to an architect to connect and collaborate on your project.</p>
+                          <div className="flex items-center gap-2 mt-3">
+                            <input
+                              type="text"
+                              readOnly
+                              value={myShareLink || `${typeof window !== "undefined" ? window.location.origin : ""}/connect?token=me`}
+                              className="flex-1 text-xs font-mono bg-white border border-[#1E1C18]/10 rounded-xl px-4 py-2.5 text-[#1E1C18]/70 truncate"
+                              placeholder="Generate your share link..."
+                            />
+                            <button
+                              onClick={handleCopyShareLink}
+                              className="bg-brand-gold hover:bg-brand-gold-dark text-white text-[11px] font-black px-4 py-2.5 rounded-xl transition-all cursor-pointer shrink-0 shadow-sm"
+                            >
+                              {inviteLinkCopied ? "Copied!" : "Copy Link"}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -2061,7 +2442,6 @@ export default function HomeownersPage() {
                                   </div>
                                 </div>
                               ))}
-                              {isChatTyping&&(<div className={styles.chatBubbleAssistant}><div className="bg-white text-[#1E1C18] border border-[#1E1C18]/5 rounded-2xl rounded-tl-none px-4 py-3.5 shadow-sm flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#1E1C18]/30 animate-bounce" /><span className="h-2 w-2 rounded-full bg-[#1E1C18]/30 animate-bounce [animation-delay:0.2s]" /><span className="h-2 w-2 rounded-full bg-[#1E1C18]/30 animate-bounce [animation-delay:0.4s]" /></div></div>)}
                               <div ref={chatBottomRef} />
                             </div>
                             <div className="px-6 py-3 border-t border-[#1E1C18]/5 bg-white flex flex-wrap gap-2">
@@ -2297,6 +2677,120 @@ export default function HomeownersPage() {
               </div>
             )}
 
+            {/* ──── RECEIVED QUOTES TAB ─────────────────────────────────── */}
+            {sidebarTab === "received" && (
+              <div className="space-y-6 animate-in fade-in duration-300">
+                <div className="space-y-6 bg-white border border-[#1E1C18]/5 rounded-3xl p-6 lg:p-8 shadow-sm">
+                  <div className="flex items-center justify-between border-b border-[#1E1C18]/5 pb-4 mb-6">
+                    <h3 className="font-black text-lg text-[#1E1C18] flex items-center gap-2">
+                      <Inbox className="h-5 w-5 text-brand-gold" />
+                      Quotes from Architects
+                    </h3>
+                    <span className="text-[10px] font-black text-brand-gold bg-brand-gold/10 border border-brand-gold/20 px-3 py-1.5 rounded-full uppercase tracking-wider">
+                      {receivedQuotes.length} {receivedQuotes.length === 1 ? "Quote" : "Quotes"}
+                    </span>
+                  </div>
+
+                  {receivedQuotes.length === 0 ? (
+                    <div className="text-center py-16 bg-[#FAF7F0]/40 border border-dashed border-[#1E1C18]/10 rounded-2xl">
+                      <div className="h-14 w-14 rounded-full bg-brand-gold/10 flex items-center justify-center text-brand-gold mx-auto mb-4 border border-brand-gold/20">
+                        <Inbox className="h-6 w-6" />
+                      </div>
+                      <h3 className="font-extrabold text-lg text-[#1E1C18]">No Received Quotes</h3>
+                      <p className="text-xs text-[#1E1C18]/50 mt-1.5 max-w-sm mx-auto font-semibold leading-relaxed">
+                        Architects will send you BOQ quotes here when you connect with them.
+                      </p>
+                      <button 
+                        onClick={() => setSidebarTab("chat")} 
+                        className="mt-6 inline-flex items-center gap-2 rounded-xl bg-brand-gold hover:bg-brand-gold-dark px-5 py-3 text-xs font-black text-white transition-all shadow-md cursor-pointer"
+                      >
+                        <MailIcon className="h-4 w-4" />
+                        Go to Messages
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {receivedQuotes.map((quote) => (
+                        <div key={quote.id} className="bg-[#FAF7F0] border border-[#1E1C18]/5 rounded-2xl p-5 hover:shadow-md transition-shadow">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-[10px] font-mono text-[#1E1C18]/40">
+                                  {new Date(quote.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                                </span>
+                                <span className="px-2 py-0.5 text-[9px] font-black uppercase bg-emerald-100 text-emerald-700 rounded-full">
+                                  {quote.area || "—"} m²
+                                </span>
+                              </div>
+                              <h4 className="font-black text-[#1E1C18]">{quote.file_name || "BOQ Quote"}</h4>
+                              <p className="text-xs text-[#1E1C18]/50 mt-1">
+                                From: <span className="font-semibold">{quote.sender_name || "Architect"}</span>
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-xl font-black text-brand-gold">
+                                ${(quote.total || 0).toLocaleString()}
+                              </div>
+                              <button
+                                onClick={() => {
+                                  // Load received quote into cost estimator for review
+                                  setReceivedQuoteToReview(quote);
+                                  setProjectName(quote.file_name || "Received BOQ");
+                                  setContractorName(quote.sender_name || "Architect");
+                                  setQuotedPrice(quote.total || 0);
+                                  // Load boq_data into rooms if available
+                                  if (quote.boq_data && quote.boq_data.items) {
+                                    const items = quote.boq_data.items.map((item, idx) => ({
+                                      id: `received-${idx}`,
+                                      name: item.name || item.material || "Item",
+                                      quantity: item.quantity || 1,
+                                      unit: item.unit || "pcs",
+                                      unit_price: item.unit_price || item.rate || 0,
+                                      total_price: item.total || (item.quantity || 1) * (item.unit_price || item.rate || 0),
+                                      notes: item.specification || "",
+                                      category: "foundation",
+                                      floor: "1",
+                                      width: 1,
+                                      length: 1
+                                    }));
+                                    setRooms(items);
+                                  }
+                                  setShowResults(true);
+                                  setSidebarTab("quotes");
+                                }}
+                                className="mt-2 text-xs font-bold text-brand-gold hover:text-brand-gold-dark cursor-pointer"
+                              >
+                                Review Quote →
+                              </button>
+                            </div>
+                          </div>
+                          {quote.boq_data && (
+                            <div className="mt-4 pt-4 border-t border-[#1E1C18]/10">
+                              <div className="text-[10px] font-black text-[#1E1C18]/40 uppercase tracking-wider mb-2">
+                                {quote.boq_data.items?.length || 0} Line Items
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {quote.boq_data.items?.slice(0, 5).map((item, idx) => (
+                                  <span key={idx} className="text-xs bg-white border border-[#1E1C18]/10 rounded-lg px-2.5 py-1">
+                                    {item.name || item.material}
+                                  </span>
+                                ))}
+                                {(quote.boq_data.items?.length || 0) > 5 && (
+                                  <span className="text-xs text-[#1E1C18]/40">
+                                    +{(quote.boq_data.items?.length || 0) - 5} more
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* ──── SUPPLIERS TAB ─────────────────────────────────────── */}
             {sidebarTab === "suppliers" && (
               <div className="space-y-6 animate-in fade-in duration-300">
@@ -2307,37 +2801,52 @@ export default function HomeownersPage() {
             {/* ──── CHAT TAB ──────────────────────────────────────────── */}
             {sidebarTab === "chat" && (
               <div className="animate-in fade-in duration-300">
-                <ChatUI
-                  contacts={[{
-                    id: "architect",
-                    name: "Sopheap Meas",
-                    role: "Senior Structural Architect",
-                    initials: "SM",
-                    lastMsg: architectChat[architectChat.length - 1]?.text || "",
-                    time: architectChat[architectChat.length - 1]?.time || "",
-                    project: "Angkor Architecture Studio",
-                  }]}
-                  selectedId="architect"
-                  onSelectContact={() => {}}
-                  messages={architectChat.map(m => ({
-                    sender: m.sender === "user" ? "me" : "other",
-                    text: m.text,
-                    time: m.time,
-                  }))}
-                  onSendMessage={(text) => {
-                    const userMsg = { sender: "user", text, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
-                    setArchitectChat(prev => [...prev, userMsg]);
-                    setTimeout(() => {
-                      let replyText = "Understood. I am cross-referencing your request with local BoQ building standards. Let me make those adjustments and get back to you.";
-                      const t = text.toLowerCase();
-                      if (t.includes("budget") || t.includes("cost") || t.includes("price")) replyText = "To keep aligned, we can optimize the masonry brick count or transition to standard-tier tile finishes for guest rooms.";
-                      else if (t.includes("dimensions") || t.includes("room") || t.includes("floor")) replyText = "Let me adjust the grid partition coordinates. Conforming to a tighter grid will reduce concrete formwork and steel costs.";
-                      setArchitectChat(prev => [...prev, { sender: "architect", text: replyText, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]);
-                    }, 1500);
+                  <ChatUI
+                    contacts={chatContacts}
+                    selectedId={selectedChatUserId}
+                    onSelectContact={handleSelectChatContact}
+                    messages={messages}
+                    onSendMessage={handleChatSend}
+                    onDeleteMessage={handleDeleteMessage}
+                    isTyping={false}
+                    isSending={chatSending}
+                    activeContact={chatContacts.find((contact) => contact.id === selectedChatUserId) || null}
+                    placeholder="Type a message…"
+                  onReviewQuote={(msg) => {
+                    // Find the quote from receivedQuotes by message_id or parse from message
+                    const quote = receivedQuotes.find(q => q.message_id === msg.id);
+                    const quoteData = quote || {
+                      id: `msg_${msg.id}`,
+                      file_name: msg.text?.match(/File: (.+)/)?.[1] || "BOQ Quote",
+                      total_amount: parseFloat(msg.text?.match(/Total: \$([\d,]+\.?\d*)/)?.[1]?.replace(/,/g, "") || 0),
+                      sender_name: msg.text?.match(/New Quote from (.+)/)?.[1] || "Architect",
+                      contractor_name: msg.text?.match(/New Quote from (.+)/)?.[1] || "Architect",
+                      from_message: true,
+                      message_id: msg.id
+                    };
+                    setReceivedQuoteToReview(quoteData);
+                    setProjectName(quoteData.file_name || "Received BOQ");
+                    setContractorName(quoteData.sender_name || quoteData.contractor_name || "Architect");
+                    setQuotedPrice(quoteData.total || quoteData.total_amount || 0);
+                    if (quoteData.boq_data && quoteData.boq_data.items) {
+                      const items = quoteData.boq_data.items.map((item, idx) => ({
+                        id: `received-${idx}`,
+                        name: item.name || item.material || "Item",
+                        quantity: item.quantity || 1,
+                        unit: item.unit || "pcs",
+                        unit_price: item.unit_price || item.rate || 0,
+                        total_price: item.total || (item.quantity || 1) * (item.unit_price || item.rate || 0),
+                        notes: item.specification || "",
+                        category: "foundation",
+                        floor: "1",
+                        width: 1,
+                        length: 1
+                      }));
+                      setRooms(items);
+                    }
+                    setShowResults(true);
+                    setSidebarTab("quotes");
                   }}
-                  isTyping={false}
-                  activeContact={{ name: "Sopheap Meas", role: "Senior Structural Architect", project: "Angkor Studio", initials: "SM" }}
-                  placeholder="Type a message to Sopheap…"
                 />
           </div>
         )}

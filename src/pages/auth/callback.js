@@ -98,6 +98,9 @@ export default function AuthCallbackPage() {
         // 6. Save backend token credentials
         localStorage.setItem("access_token", accessToken);
         localStorage.setItem("user_id", userId);
+        if (refreshToken) {
+          localStorage.setItem("refresh_token", refreshToken);
+        }
 
         // 7. Initialize user session in useAuth hook
         login({

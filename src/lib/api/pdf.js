@@ -1,11 +1,12 @@
 // POST /api/pdf/upload
 // Must use FormData (no JSON), file sent as binary
+import { getToken } from "./client";
+
 export async function uploadPdf(file) {
   const formData = new FormData();
   formData.append("file", file);
 
-  let token = localStorage.getItem("access_token");
-  if (!token || token === "mock-token-xyz" || token === "undefined" || token === "null") token = null;
+  const token = getToken();
 
   const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/pdf/upload`, {
     method: "POST",

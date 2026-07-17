@@ -7,7 +7,13 @@ export async function analyzeQuote(quoteId) {
   });
 }
 
-// GET /api/v1/analyze/{quoteId} 
+// GET /api/v1/analyze/{quoteId} - returns null if no analysis exists yet
 export async function getAnalysisResults(quoteId) {
-  return apiFetch(`/api/v1/analyze/${quoteId}`);
+  try {
+    const res = await apiFetch(`/api/v1/analyze/${quoteId}`);
+    return res;
+  } catch (e) {
+    // Returns null if no analysis exists yet
+    return null;
+  }
 }

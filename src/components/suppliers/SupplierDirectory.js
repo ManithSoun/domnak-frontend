@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { getToken } from "@/lib/api/client";
 import { Store, MapPin, Phone, Search, SlidersHorizontal, CheckCircle2, DollarSign, X } from "lucide-react";
 import { getSuppliers, trackSupplierClick } from "@/lib/api/index";
 
@@ -53,7 +54,7 @@ export default function SupplierDirectory({ showHeader = true, onShowToast = nul
     setActiveContactSupplier(supplier);
     
     // Call database click tracking endpoint asynchronously ONLY if logged in
-    const token = localStorage.getItem("access_token");
+    const token = getToken();
     if (token) {
       try {
         await trackSupplierClick(supplier.id);
